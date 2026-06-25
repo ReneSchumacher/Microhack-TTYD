@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: ttyd-tf
+
+services:
+  web:
+    project: src
+    language: js
+    host: appservice
+    resourceGroup: ${resource_group_name}
+    resourceName: ${AZURE_APP_SERVICE_WEB_APP_NAME}
+
+infra:
+  provider: terraform
+  path: infra
+
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: ./scripts/preprovision.ps1
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        ./scripts/Restore-MicrohackDatabases.ps1
+        ./scripts/Execute-Jobs.ps1
+        ./scripts/Insert-Product.ps1
+        ./scripts/Create-StoredProcedure.ps1

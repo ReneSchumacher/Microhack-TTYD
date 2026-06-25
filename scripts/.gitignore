@@ -1,0 +1,14 @@
+# PowerShell deployment / provisioning scripts
+
+# Transcripts and execution logs
+*.log
+*.transcript
+
+# Temporary output produced by scripts
+*.tmp
+*.out
+
+# Local credential / parameter files (never commit secrets)
+*.secret.ps1
+*.local.ps1
+secrets.json

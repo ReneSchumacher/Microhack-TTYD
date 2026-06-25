@@ -1,0 +1,19 @@
+# azd environment and local Azure config
+.azure
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.idea/
+*.swp
+
+# Logs and temp
+*.log
+*.tmp
+
+# Secrets / local environment
+.env
+*.local
