@@ -1,6 +1,6 @@
 # Problem Statement
 
-Build your own microhack 'Talk to your data' environment with azd.
+You want to build up an own TTYD environment. Build 'Talk to your data' environment with azd.
 
 Source https://aka.ms/ttyd
 
@@ -32,10 +32,12 @@ If you are a coach. This azd repo is deploying the entire microhack experience. 
 - Storage account -> blocks SAS key usage every night! -> public network access disabled!
   MI changes to entra id login only
 
-# Requirements of permissions
+  I'm working on a solution.
 
-- Fabric Admin User benötigt die Rolle: Privileged Role Administrator, Fabric Admin
-- AZD Deployment user benötigt Global Admin and Subscription Owner Role
+# Required permissions
+
+- AZD Deployment user needs Global Admin, Fabric Admin and Subscription Owner Role
+- Resource provider Fabric and PowerPlatform is neede to be registered on the subscription
 
 # Instructions
 
@@ -57,8 +59,8 @@ cd TTYD-TF
 Sign in to both the Azure Developer CLI and the Azure CLI against the Fabric tenant.
 
 ```powershell
-azd auth login --tenant-id "MngEnvMCAP538867.onmicrosoft.com"
-az login --tenant MngEnvMCAP538867.onmicrosoft.com
+azd auth login --tenant-id "<YOUR TENANT: xyz.onmicrosoft.com>"
+az login --tenant <YOUR TENANT: xyz.onmicrosoft.com>
 ```
 
 ### 3. Create and select an azd environment
@@ -82,15 +84,15 @@ Adjust the values to match your subscription, tenant, and admin identities.
 
 ```powershell
 azd env set APP_SERVICE_PLAN_SKU=B1
-azd env set AZURE_APP_SERVICE_WEB_APP_NAME=app-sqlhack-<YOURPREFIX>
+azd env set AZURE_APP_SERVICE_WEB_APP_NAME=app-sqlhack-hacker1
 azd env set AZURE_LOCATION=swedencentral
-azd env set AZURE_SUBSCRIPTION_ID=a1e862d1-ec96-44d1-a069-563ac034ffad
+azd env set AZURE_SUBSCRIPTION_ID=<YOUR SUBSCRIPITON ID>
 azd env set SQL_ADMIN_LOGIN=sqlmiadmin
-azd env set SQL_MI_ENTRA_ADMIN_LOGIN=admin@MngEnvMCAP538867.onmicrosoft.com
-azd env set SQL_MI_ENTRA_ADMIN_OBJECT_ID=ff2a66c2-5b54-41a9-9ec3-12f9f1c9553e
-azd env set SQL_PASSWORD=Password123!Password123!
-azd env set TAILSPIN_TOYS_USER_DATABASE_COUNT=3
-azd env set TENANT_DOMAIN=MngEnvMCAP538867.onmicrosoft.com
+azd env set SQL_MI_ENTRA_ADMIN_LOGIN=<UPN of your admin User in Entra>
+azd env set SQL_MI_ENTRA_ADMIN_OBJECT_ID=<Object ID of above User>
+azd env set SQL_PASSWORD=<YOUR PASSWORD>
+azd env set TAILSPIN_TOYS_USER_DATABASE_COUNT=<NUMBER OF USERS>
+azd env set TENANT_DOMAIN=<YOUR TENANT DOMAIN>
 ```
 
 ### 5. Deploy
@@ -108,6 +110,8 @@ The Azure Developer CLI (`azd`) is an open-source command-line tool that streaml
 1. Checks if user has needed permissions
 2. Check if subscrption has right resource provider registered (Fabric, PowerPlatform)
 
+Important: The WAM (Windows Web Access Manager) is popping up in the background sometimes.
+
 ### Infra Deployment
 
 1. Deploys Infra via Terraform
@@ -123,6 +127,8 @@ The Azure Developer CLI (`azd`) is an open-source command-line tool that streaml
 2. Delete Resource Group manually
 3. Delete Entra group and Testusers manually
 4. Clear the Terraform state files and the environment directory
+
+Important: If you want to delete the resource group in Azure than all corresponding artifacts that referes to Azure in Fabric needs to be deleted. The VNET data gateway is blocking the deletion of the VNET when not deleted. If artifacts in farbic is beeing deleted then population to Azure takes up to 60 min.
 
 # Disclaimer
 
