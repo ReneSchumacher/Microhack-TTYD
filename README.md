@@ -84,13 +84,13 @@ Adjust the values to match your subscription, tenant, and admin identities.
 
 ```powershell
 azd env set APP_SERVICE_PLAN_SKU=B1
-azd env set AZURE_APP_SERVICE_WEB_APP_NAME=app-sqlhack-henrik1
+azd env set AZURE_APP_SERVICE_WEB_APP_NAME=app-sqlhack-hack1
 azd env set AZURE_LOCATION=swedencentral
 azd env set AZURE_SUBSCRIPTION_ID=a1e862d1-ec96-44d1-a069-563ac034ffad
 azd env set SQL_ADMIN_LOGIN=sqlmiadmin
 azd env set SQL_MI_ENTRA_ADMIN_LOGIN=admin@MngEnvMCAP538867.onmicrosoft.com
 azd env set SQL_MI_ENTRA_ADMIN_OBJECT_ID=ff2a66c2-5b54-41a9-9ec3-12f9f1c9553e
-azd env set SQL_PASSWORD2="Password123!"
+azd env set SQL_PASSWORD="Password123!"
 azd env set TAILSPIN_TOYS_USER_DATABASE_COUNT=2
 azd env set TENANT_DOMAIN=MngEnvMCAP538867.onmicrosoft.com
 ```
