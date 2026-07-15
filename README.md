@@ -123,12 +123,7 @@ Important: The WAM (Windows Web Access Manager) is popping up in the background 
 
 # Cleanup
 
-1. Delete all Fabric resources manually
-2. Delete Resource Group manually
-3. Delete Entra group and Testusers manually
-4. Clear the Terraform state files and the environment directory
-
-Important: If you want to delete the resource group in Azure than all corresponding artifacts that referes to Azure in Fabric needs to be deleted. The VNET data gateway is blocking the deletion of the VNET when not deleted. If artifacts in farbic is beeing deleted then population to Azure takes up to 60 min.
+1. Run Destroy-Environment.ps1
 
 # Disclaimer
 
