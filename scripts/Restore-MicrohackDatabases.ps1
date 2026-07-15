@@ -1,85 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Get-DotEnvValues {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    if (-not (Test-Path -Path $Path)) {
-        throw "Missing .env file at '$Path'."
-    }
-
-    $values = @{}
-    foreach ($line in Get-Content -Path $Path) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        if ($line.TrimStart().StartsWith("#")) {
-            continue
-        }
-
-        $pair = $line -split "=", 2
-        if ($pair.Count -ne 2) {
-            continue
-        }
-
-        $key = $pair[0].Trim()
-        $value = $pair[1].Trim()
-
-        if ($value.StartsWith('"') -and $value.EndsWith('"')) {
-            $value = $value.Substring(1, $value.Length - 2)
-        }
-
-        # azd writes escaped values in .env for special characters.
-        $value = $value -replace '\\\\', '\\' -replace '\\"', '"' -replace '\\!', '!'
-        $values[$key] = $value
-    }
-
-    return $values
-}
-
-function Get-TfStateManagedInstanceFqdn {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    if (-not (Test-Path -Path $Path)) {
-        throw "Missing terraform state at '$Path'."
-    }
-
-    $json = Get-Content -Path $Path -Raw | ConvertFrom-Json
-    $fqdn = $json.outputs.sql_managed_instance_fqdn.value
-    if ([string]::IsNullOrWhiteSpace($fqdn)) {
-        throw "Could not find outputs.sql_managed_instance_fqdn.value in '$Path'."
-    }
-
-    return $fqdn
-}
-
-function Get-TfStateOutput {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-        [Parameter(Mandatory = $true)]
-        [string]$OutputName
-    )
-
-    if (-not (Test-Path -Path $Path)) {
-        throw "Missing terraform state at '$Path'."
-    }
-
-    $json = Get-Content -Path $Path -Raw | ConvertFrom-Json
-    $value = $json.outputs.$OutputName.value
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        throw "Could not find outputs.$OutputName.value in '$Path'."
-    }
-
-    return $value
-}
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "TtydCommon.psm1") -Force
 
 function New-BlobSasUrl {
     param(
@@ -120,46 +42,6 @@ function Get-UserDatabaseNames {
     return 1..$Count | ForEach-Object {
         "{0}{1:D3}" -f $Prefix, $_
     }
-}
-
-function Get-TenantDomain {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$EnvFilePath,
-        [string]$ParameterName = "TENANT_DOMAIN"
-    )
-
-    if (-not (Test-Path -Path $EnvFilePath)) {
-        throw "Missing .env file at '$EnvFilePath'."
-    }
-
-    foreach ($line in Get-Content -Path $EnvFilePath) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        if ($line.TrimStart().StartsWith("#")) {
-            continue
-        }
-
-        $pair = $line -split "=", 2
-        if ($pair.Count -ne 2) {
-            continue
-        }
-
-        $key = $pair[0].Trim()
-        $value = $pair[1].Trim()
-
-        if ($value.StartsWith('"') -and $value.EndsWith('"')) {
-            $value = $value.Substring(1, $value.Length - 2)
-        }
-
-        if ($key -eq $ParameterName) {
-            return $value
-        }
-    }
-
-    throw "$ParameterName is missing in '$EnvFilePath'."
 }
 
 function Add-UserToDatabase {
@@ -318,25 +200,11 @@ try {
         throw "AZURE_ENV_NAME is not set. Run through azd so environment variables are available."
     }
 
-    $envFilePath = Join-Path -Path $repoRoot -ChildPath ".azure/$envName/.env"
     $tfStatePath = Join-Path -Path $repoRoot -ChildPath ".azure/$envName/infra/terraform.tfstate"
 
-    $envValues = Get-DotEnvValues -Path $envFilePath
-    $sqlLogin = $envValues["SQL_ADMIN_LOGIN"]
-    $sqlPassword = $envValues["SQL_PASSWORD"]
-    $userDatabaseCountRaw = $envValues["TAILSPIN_TOYS_USER_DATABASE_COUNT"]
-
-    if ([string]::IsNullOrWhiteSpace($sqlLogin)) {
-        throw "SQL_ADMIN_LOGIN is missing in '$envFilePath'."
-    }
-
-    if ([string]::IsNullOrWhiteSpace($sqlPassword)) {
-        throw "SQL_PASSWORD is missing in '$envFilePath'."
-    }
-
-    if ([string]::IsNullOrWhiteSpace($userDatabaseCountRaw)) {
-        throw "TAILSPIN_TOYS_USER_DATABASE_COUNT is missing in '$envFilePath'."
-    }
+    $sqlLogin = Get-AzdEnvValue -Name "SQL_ADMIN_LOGIN"
+    $sqlPassword = Get-AzdEnvValue -Name "SQL_PASSWORD"
+    $userDatabaseCountRaw = Get-AzdEnvValue -Name "TAILSPIN_TOYS_USER_DATABASE_COUNT"
 
     $userDatabaseCount = 0
     if (-not [int]::TryParse($userDatabaseCountRaw, [ref]$userDatabaseCount) -or $userDatabaseCount -lt 1) {

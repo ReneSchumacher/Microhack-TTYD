@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath "TtydCommon.psm1") -Force
+
 # Entra Global Administrator directory role template id (well-known, constant).
 $GlobalAdminRoleTemplateId = "62e90394-69f5-4237-9190-012177145e10"
 
@@ -23,80 +25,24 @@ function Assert-ModuleAvailable {
     Import-Module $Name -ErrorAction Stop
 }
 
-function Get-DotEnvValues {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    if (-not (Test-Path -Path $Path)) {
-        throw "Missing .env file at '$Path'."
-    }
-
-    $values = @{}
-    foreach ($line in Get-Content -Path $Path) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        if ($line.TrimStart().StartsWith("#")) {
-            continue
-        }
-
-        $pair = $line -split "=", 2
-        if ($pair.Count -ne 2) {
-            continue
-        }
-
-        $key = $pair[0].Trim()
-        $value = $pair[1].Trim()
-
-        if ($value.StartsWith('"') -and $value.EndsWith('"')) {
-            $value = $value.Substring(1, $value.Length - 2)
-        }
-
-        # azd writes escaped values in .env for special characters.
-        $value = $value -replace '\\\\', '\\' -replace '\\"', '"' -replace '\\!', '!'
-        $values[$key] = $value
-    }
-
-    return $values
-}
-
 function Get-EnvSettings {
-    $repoRoot = Split-Path -Path $PSScriptRoot -Parent
-
     $envName = $env:AZURE_ENV_NAME
     if ([string]::IsNullOrWhiteSpace($envName)) {
-        # Fall back to discovery when not invoked through azd (e.g. manual run).
-        $envFolders = @(Get-ChildItem -Path (Join-Path -Path $repoRoot -ChildPath ".azure") -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path -Path (Join-Path -Path $_.FullName -ChildPath ".env") })
-
-        if ($envFolders.Count -eq 0) {
-            throw "Could not locate an azd environment. Set AZURE_ENV_NAME or run through azd."
+        # azd env get-value relies on the active azd environment.
+        $envName = azd env get-value AZURE_ENV_NAME 2>$null
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($envName)) {
+            throw "Could not determine the azd environment. Run through azd, or select one first with 'azd env select <name>'."
         }
-
-        if ($envFolders.Count -gt 1) {
-            throw "Multiple azd environments found under '.azure'. Set AZURE_ENV_NAME to select one."
-        }
-
-        $envName = $envFolders[0].Name
+        $envName = $envName.Trim()
     }
 
-    $envFilePath = Join-Path -Path $repoRoot -ChildPath ".azure/$envName/.env"
-    $envValues = Get-DotEnvValues -Path $envFilePath
+    $subscriptionId = Get-AzdEnvValue -Name "AZURE_SUBSCRIPTION_ID"
 
-    $subscriptionId = $envValues["AZURE_SUBSCRIPTION_ID"]
-    if ([string]::IsNullOrWhiteSpace($subscriptionId)) {
-        throw "AZURE_SUBSCRIPTION_ID is missing in '$envFilePath'."
-    }
-
-    # Tenant is optional in the .env; used to scope a silent sign-in when required.
-    $tenant = $envValues["TENANT_DOMAIN"]
+    # Tenant is optional in the environment; used to scope a silent sign-in when required.
+    $tenant = Get-AzdEnvValue -Name "TENANT_DOMAIN" -Optional
 
     return [pscustomobject]@{
         EnvName        = $envName
-        EnvFilePath    = $envFilePath
         SubscriptionId = $subscriptionId
         Tenant         = $tenant
     }
@@ -253,7 +199,7 @@ $envSettings = Get-EnvSettings
 $subscriptionId = $envSettings.SubscriptionId
 $tenant = $envSettings.Tenant
 
-Write-Host "Environment  : $($envSettings.EnvName) ($($envSettings.EnvFilePath))"
+Write-Host "Environment  : $($envSettings.EnvName)"
 if (-not [string]::IsNullOrWhiteSpace($tenant)) {
     Write-Host "Tenant       : $tenant"
 }
