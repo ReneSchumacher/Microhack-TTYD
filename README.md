@@ -1,6 +1,6 @@
 # Problem Statement
 
-You want to build up an own TTYD environment. Build 'Talk to your data' environment with azd.
+You want to build up an own TTYD microhack environment. Build 'Talk to your data' environment with azd.
 
 Source https://aka.ms/ttyd
 
@@ -8,7 +8,7 @@ Source https://aka.ms/ttyd
 
 If you are a coach. This azd repo is deploying the entire microhack experience. Define some basic variables and spin it up.
 
-# Architecture of the environment
+# Architecture
 
 - The Entra tenant where you as a user is logged in is the Fabric tenant
 - Test users and a group are beeing created in this tenant
@@ -37,7 +37,7 @@ If you are a coach. This azd repo is deploying the entire microhack experience. 
 # Required permissions
 
 - AZD Deployment user needs Global Admin, Fabric Admin and Subscription Owner Role
-- Resource provider Fabric and PowerPlatform is neede to be registered on the subscription
+- Resource provider for Fabric and PowerPlatform has to be registered on the subscription
 
 # Instructions
 
@@ -51,7 +51,7 @@ Make sure you meet everything listed under [Software Requirements](#software-req
 
 ```powershell
 git clone <repository-url>
-cd TTYD-TF
+cd Microhack-TTYD
 ```
 
 ### 2. Authenticate

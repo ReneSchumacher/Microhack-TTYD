@@ -52,6 +52,7 @@ function Get-AzureContextInfo {
     param(
         [Parameter(Mandatory = $true)]
         [string]$SubscriptionId,
+        [Parameter(Mandatory = $true)]
         [string]$Tenant
     )
 
@@ -62,10 +63,11 @@ function Get-AzureContextInfo {
             Subscription  = $SubscriptionId
             WarningAction = "SilentlyContinue"
             ErrorAction   = "Stop"
+            Tenant        = $Tenant
         }
-        if (-not [string]::IsNullOrWhiteSpace($Tenant)) {
-            $connectParams["Tenant"] = $Tenant
-        }
+        #   if (-not [string]::IsNullOrWhiteSpace($Tenant)) {
+        #       $connectParams["Tenant"] = $Tenant
+        #   }
         Connect-AzAccount @connectParams | Out-Null
     }
 
@@ -73,10 +75,11 @@ function Get-AzureContextInfo {
     $setParams = @{
         Subscription = $SubscriptionId
         ErrorAction  = "Stop"
+        Tenant       = $Tenant
     }
-    if (-not [string]::IsNullOrWhiteSpace($Tenant)) {
-        $setParams["Tenant"] = $Tenant
-    }
+    #    if (-not [string]::IsNullOrWhiteSpace($Tenant)) {
+    #        $setParams["Tenant"] = $Tenant
+    #    }
     $context = Set-AzContext @setParams
 
     if ($null -eq $context.Subscription) {
@@ -203,6 +206,8 @@ Write-Host "Environment  : $($envSettings.EnvName)"
 if (-not [string]::IsNullOrWhiteSpace($tenant)) {
     Write-Host "Tenant       : $tenant"
 }
+
+Connect-AzAccount -Subscription $subscriptionId -Tenant $tenant -ErrorAction Stop | Out-Null
 
 $azureContext = Get-AzureContextInfo -SubscriptionId $subscriptionId -Tenant $tenant
 $signedInUser = $azureContext.Account.Id
