@@ -7,23 +7,16 @@ services:
     project: src
     language: js
     host: appservice
-    resourceGroup: ${resource_group_name}
+    resourceGroup: ${RESOURCE_GROUP_NAME}
     resourceName: ${AZURE_APP_SERVICE_WEB_APP_NAME}
 
 infra:
-  provider: terraform
+  provider: bicep
   path: infra
+  module: main
 
-hooks:
-  preprovision:
-    windows:
-      shell: pwsh
-      run: ./scripts/preprovision.ps1
-  postprovision:
-    windows:
-      shell: pwsh
-      run: |
-        ./scripts/Restore-MicrohackDatabases.ps1
-        ./scripts/Execute-Jobs.ps1
-        ./scripts/Insert-Product.ps1
-        ./scripts/Create-StoredProcedure.ps1
+# NOTE (Phase 1): the preprovision/postprovision hooks that performed permission
+# checks and data loading were removed for the infra-only Bicep checkpoint. That
+# orchestration (Entra users, SQL MI Directory-Readers grant + AD admin, Fabric
+# gateway/workspaces/role-assignments, .bak restore, jobs, product, stored proc)
+# is rebuilt in Phase 2 as the MicroHack labautomation shared/per-lab scripts.
