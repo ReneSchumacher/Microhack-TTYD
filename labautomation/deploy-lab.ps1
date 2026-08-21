@@ -43,6 +43,11 @@ $TailspinToysFeedbackBak = 'tailspintoysfeedback_before_launch.bak'
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
+if (-not (Get-Module -ListAvailable -Name SqlServer)) {
+    Install-Module -Name SqlServer -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+}
+Import-Module SqlServer -ErrorAction Stop
+
 function Get-DbAccessToken {
     $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
     if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
@@ -91,7 +96,7 @@ $upn = $user.UserPrincipalName
 $sqlDb = "TailspinToys_$short"
 $feedbackDb = "TailspinToysFeedback_$short"
 
-$mi = az sql mi list -g $SharedResourceGroup -o json | ConvertFrom-Json
+$mi = @(az sql mi list -g $SharedResourceGroup -o json | ConvertFrom-Json)
 if (-not $mi -or $mi.Count -eq 0) { throw "No shared SQL Managed Instance found in '$SharedResourceGroup'. Did the shared hook run?" }
 $miFqdn = $mi[0].fullyQualifiedDomainName
 $publicFqdn = $miFqdn -replace '^([^.]+)\.', '$1.public.'

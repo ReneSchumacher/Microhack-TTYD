@@ -52,6 +52,11 @@ $DemoDatabases = [ordered]@{
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
+if (-not (Get-Module -ListAvailable -Name SqlServer)) {
+    Install-Module -Name SqlServer -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+}
+Import-Module SqlServer -ErrorAction Stop
+
 function Get-DbAccessToken {
     $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
     if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
