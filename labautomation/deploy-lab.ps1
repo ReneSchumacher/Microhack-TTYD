@@ -1,27 +1,25 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
-    MicroHack per-attendee deployment hook. Runs once per attendee, in parallel, after
-    shared-deploy-lab.ps1 has provisioned the shared SQL MI, Fabric capacity, gateway
-    and demo databases. For the single attendee it is invoked for, it creates:
-      - two databases in the shared SQL MI (TailspinToys_<short> + TailspinToysFeedback_<short>)
-      - the attendee's Entra login/user (db_owner) on both databases
-      - the Fabric Space Ranger product in each database
-      - a per-attendee CSV storage account in the attendee's resource group (main.bicep)
-      - one Fabric workspace on the shared capacity, with the attendee as Member
-
-.NOTES
-    Auth is handled by the platform (do NOT call Connect-AzAccount / az login). SQL is
-    accessed with an Entra token as the deploying principal, which shared-deploy-lab.ps1
-    configured as the SQL MI Entra admin. Repo-root resources (../csvdata) require the
-    repo root to be mounted for local testing.
+Deploys the lab resources scoped to a subscription or resource group.
+.DESCRIPTION
+Provides a controlled deployment flow for lab environments, optionally limited to a resource group and specific Entra user IDs.
+.PARAMETER DeploymentType
+Defines the deployment scope; allowed values are subscription or resourcegroup.
+.PARAMETER SubscriptionId
+Specifies the Azure subscription that contains the lab resources.
+.PARAMETER ResourceGroupName
+In case of resourcegroup deployment, specifies the target resource group name.
+.PARAMETER PreferredLocation
+Specifies the preferred Azure regions (ordered by preference) for resource deployment. An empty array indicates no preference.
+.PARAMETER AllowedEntraUserIds
+Optional list of Entra user object IDs permitted to access the lab resources.
 #>
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('subscription', 'resourcegroup', 'resourcegroup-with-subscriptionowner')]
+    [Parameter(Mandatory=$true)]
+    [ValidateSet('subscription','resourcegroup', 'resourcegroup-with-subscriptionowner')]
     [string]$DeploymentType,
-
-    [Parameter(Mandatory = $true)]
+    
+    [Parameter(Mandatory=$true)]
     [string]$SubscriptionId,
 
     [string]$ResourceGroupName = "",
