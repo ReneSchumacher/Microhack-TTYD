@@ -1,130 +1,64 @@
-# Problem Statement
+![image](./Images/Preview.png)
 
-You want to build up an own TTYD microhack environment. Build 'Talk to your data' environment with azd.
+# Ask Analyze Act - Talk to Your Data in the Era of AI
 
-Source https://aka.ms/ttyd
+- [**MicroHack introduction**](#MicroHack-introduction)
+- [**MicroHack context**](#microhack-context)
+- [**Objectives**](#objectives)
+- [**MicroHack Challenges**](#microhack-challenges)
+- [**Contributors**](#contributors)
 
-# Solution
+# MicroHack introduction
 
-If you are a coach. This azd repo is deploying the entire microhack experience. Define some basic variables and spin it up.
+This MicroHack _Talk to Your Data in the Era of AI_ scenario walks through the use of modernizing SQL Server workloads and building an analytics‑ and AI‑ready data foundation using Microsoft Fabric and Azure SQL Managed Instance.
 
-# Architecture
+Through hands‑on labs, participants will explore how to break down data silos, unify operational and external data, enable governed analytics, and control how AI agents reason and respond. The scenario demonstrates the end‑to‑end journey from database mirroring and analytics enablement to Data Agent configuration and real user interaction via M365 Copilot.
 
-- The Entra tenant where you as a user is logged in is the Fabric tenant
-- Test users and a group are beeing created in this tenant
-- The Azure Subscription must assossiated to this tenant
-- All resources are placed into a single resource group
-- Access from SSMS to the Managed instance is public.
-- Access from Fabric is private goes over a gateway
+# MicroHack context
 
-# Software Requirements (tested with):
+This MicroHack scenario focuses on breaking down data silos through database mirroring, unifying operational and external data in OneLake, building semantic models for governed analytics, and configuring Data Agents to support natural language querying and Copilot integration. It highlights best practices for data architecture, AI readiness, and agent instruction design to enable secure, reliable, and scalable intelligent data interaction.
 
-- Windows OS
-- Terraform > 1.14.3
-- Azure Developer CLI 1.25.5
-- SQLServer Powershell Module > 22.4.5.1
-- Powershell 7.6.2
-- AZ cli (SQL module) >2.85.0
+# Objectives
 
-# MCAPS Tenant restrictions
+After completing this MicroHack you will be able to:
 
-- VNET subnet going to private every night.
-- Storage account -> blocks SAS key usage every night! -> public network access disabled!
-  MI changes to entra id login only
+- Replicate operational data from Azure SQL Managed Instance into Microsoft Fabric OneLake using database mirroring
+- Unify mirrored databases and external data sources into a single Lakehouse for centralized analytics
+- Create and optimize Semantic Models to support reliable reporting and efficient query performance
+- Prepare data for AI and Copilot scenarios by defining clear data structures, relationships, and instructions
+- Configure and validate a Data Agent that delivers accurate, context‑aware responses
+- Publish and interact with a Data Agent through the M365 Copilot experience
 
-  I'm working on a solution.
+# MicroHack challenges
 
-# Required permissions
+## General prerequisites
 
-- AZD Deployment user needs Global Admin, Fabric Admin and Subscription Owner Role
-- Resource provider for Fabric and PowerPlatform has to be registered on the subscription
+This MicroHack has a few but important prerequisites
 
-# Instructions
+- Basic Azure knowledge [(Azure fundamentals)](https://learn.microsoft.com/en-us/training/paths/azure-fundamentals-describe-azure-architecture-services/)
+- Basic database knowledge
+- Microsoft Teams Desktop Sharing should be allowed to collaborate with other participants (only for remote deliveries)
 
-Follow these steps in order to deploy the environment.
+## Challenges
 
-### 0. Fulfill the requirements
+- [Challenge 1 - Attack the Data Silos](challenges/challenge-01.md) **<- Start here**
+- [Challenge 2 - Data Agent becomes mission control](challenges/challenge-02.md)
+- [Challenge 3 - Everyone gets a jetpack](challenges/challenge-03.md)
 
-Make sure you meet everything listed under [Software Requirements](#software-requirements-tested-with) and [Requirements of permissions](#requirements-of-permissions) before you start.
+## Solutions - Spoilerwarning
 
-### 1. Clone this repository
+- [Solution 1 - Attack the Data Silos](./walkthrough/challenge-01/solution-01.md)
+- [Solution 2 - Data Agent becomes mission control](./walkthrough/challenge-02/solution-02.md)
+- [Solution 3 - Everyone gets a jetpack](./walkthrough/challenge-03/solution-03.md)
 
-```powershell
-git clone <repository-url>
-cd Microhack-TTYD
-```
+## Infrastrcture
 
-### 2. Authenticate
+You will find instructions to spin up the infrastructure here. [TTYD Infrastructure](https://github.com/henrikmotzkus/Microhack-TTYD)
 
-Sign in to both the Azure Developer CLI and the Azure CLI against the Fabric tenant.
+## Contributors
 
-```powershell
-azd auth login --tenant-id "<YOUR TENANT: xyz.onmicrosoft.com>"
-az login --tenant <YOUR TENANT: xyz.onmicrosoft.com>
-```
-
-### 3. Create and select an azd environment
-
-1. Replace `<YOURPREFIX>` with your own environment name.
-2. Replace Subscription ID
-3. Replace ADMIN_LOGIN
-4. Replace OBJECT_ID
-5. Replace Password
-6. DATABSE_COUNT is the number of peritcipants
-7. Replace Tenant_Domain
-
-```powershell
-azd env new <YOURPREFIX>
-azd env select <YOURPREFIX>
-```
-
-### 4. Configure the environment variables
-
-Adjust the values to match your subscription, tenant, and admin identities.
-
-```powershell
-azd env set APP_SERVICE_PLAN_SKU=B1
-azd env set AZURE_APP_SERVICE_WEB_APP_NAME=app-sqlhack-hack1
-azd env set AZURE_LOCATION=swedencentral
-azd env set AZURE_SUBSCRIPTION_ID=a1e862d1-ec96-44d1-a069-563ac034ffad
-azd env set SQL_ADMIN_LOGIN=sqlmiadmin
-azd env set SQL_MI_ENTRA_ADMIN_LOGIN=admin@MngEnvMCAP538867.onmicrosoft.com
-azd env set SQL_MI_ENTRA_ADMIN_OBJECT_ID=ff2a66c2-5b54-41a9-9ec3-12f9f1c9553e
-azd env set SQL_PASSWORD="Password123!"
-azd env set TAILSPIN_TOYS_USER_DATABASE_COUNT=2
-azd env set TENANT_DOMAIN=MngEnvMCAP538867.onmicrosoft.com
-```
-
-### 5. Deploy
-
-```powershell
-azd up
-```
-
-# What azd is doing
-
-The Azure Developer CLI (`azd`) is an open-source command-line tool that streamlines provisioning and deploying applications to Azure. It ties together your infrastructure-as-code (here, Terraform), application source, and environment configuration into a single, repeatable workflow, so a full environment can be stood up with one `azd up`. It also runs lifecycle hooks at defined stages, which this project uses to validate prerequisites and load data automatically.
-
-### Preprovision
-
-1. Checks if user has needed permissions
-2. Check if subscrption has right resource provider registered (Fabric, PowerPlatform)
-
-Important: The WAM (Windows Web Access Manager) is popping up in the background sometimes.
-
-### Infra Deployment
-
-1. Deploys Infra via Terraform
-2. Deploys App into webshop
-
-### Postprovision
-
-1. Loads data to the databases
-
-# Cleanup
-
-1. Run Destroy-Environment.ps1
-
-# Disclaimer
-
-This repository is provided "as is", without warranty of any kind, express or implied. I do not guarantee that it is fit for any particular purpose, and I accept no liability for any damage, data loss, or costs arising from its use. It is released under the [MIT License](https://opensource.org/licenses/MIT). Use this repository at your own risk.
+- Cornel Sukalla [LinkedIn](https://www.linkedin.com/in/cornelsukalla/)
+- Wolf Biber [LinkedIn](https://www.linkedin.com/in/ms-wolf-biber/)
+- Tobias Altmiks [LinkedIn](https://www.linkedin.com/in/tobias-altmiks-998416158/)
+- Seoyoung Yoo [LinkedIn](https://www.linkedin.com/in/seoyoungfromkorea/)
+- Henrik Motzkus [LinkedIn](https://www.linkedin.com/in/henrikmotzkus/)
