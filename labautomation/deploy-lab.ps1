@@ -33,7 +33,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $SharedResourceGroup = 'rg-shared'
-$RepoRoot = Split-Path -Path $PSScriptRoot -Parent
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
 $TailspinToysBak = 'tailspintoys_before_launch.bak'
 $TailspinToysFeedbackBak = 'tailspintoysfeedback_before_launch.bak'
@@ -116,7 +115,7 @@ $userStorage = [string]$rgResult.Outputs['storageAccountName']
 $userContainer = [string]$rgResult.Outputs['containerName']
 
 # Upload the employee CSV into the attendee container.
-$csvPath = Join-Path $RepoRoot 'csvdata/employees_user_data.csv'
+$csvPath = Join-Path $PSScriptRoot 'csvdata/employees_user_data.csv'
 if (-not (Test-Path $csvPath)) { throw "Employee CSV not found: $csvPath" }
 $userStorageKey = az storage account keys list --resource-group $ResourceGroupName --account-name $userStorage --query "[0].value" -o tsv
 az storage blob upload --account-name $userStorage --account-key $userStorageKey `

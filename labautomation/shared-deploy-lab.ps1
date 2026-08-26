@@ -31,7 +31,6 @@ $ErrorActionPreference = 'Stop'
 # ─────────────────────────────────────────────
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
-$RepoRoot = Split-Path -Path $PSScriptRoot -Parent
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
 $GraphApi = 'https://graph.microsoft.com/v1.0'
 $RequiredProviders = @('Microsoft.Sql', 'Microsoft.Fabric', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.Network')
@@ -230,7 +229,7 @@ $storageKey = az storage account keys list --resource-group $SharedResourceGroup
 if ($LASTEXITCODE -ne 0) { throw "Failed to read storage key for '$storageAccount'." }
 
 foreach ($bak in @($TailspinToysBak, $TailspinToysFeedbackBak)) {
-    $localBak = Join-Path $RepoRoot "databasebackup/$bak"
+    $localBak = Join-Path $PSScriptRoot "databasebackup/$bak"
     if (-not (Test-Path $localBak)) { throw "Backup file not found: $localBak" }
     Write-Host "[shared] Uploading $bak."
     az storage blob upload --account-name $storageAccount --account-key $storageKey `

@@ -10,7 +10,7 @@ integration for the Talk-To-Your-Data MicroHack.
 | `lab-defaults.json` | Platform sizing: `resourcegroup`, 42 labs/subscription. |
 | `shared-deploy-lab.ps1` | Runs once per subscription → `rg-shared`. Shared VNet, SQL MI, Fabric F32 capacity + gateway, backup storage, shared webshop, demo databases, stored proc, product, Agent job. |
 | `deploy-lab.ps1` | Runs once per attendee. Two databases in the shared MI, the attendee's login + Fabric workspace, a per-attendee CSV storage account. |
-| `shared.bicep` / `main.bicep` | ARM templates for the shared stack and the per-attendee resources (reuse `../infra/modules`). |
+| `shared.bicep` / `main.bicep` | ARM templates for the shared stack and the per-attendee resources (reuse `infra/modules`). |
 | `sql/` | `StoredProcedure.sql`, `Jobs.sql`, `InsertProduct.sql` (discover per-attendee DBs by name pattern). |
 
 ## Split model
@@ -30,13 +30,13 @@ integration for the Talk-To-Your-Data MicroHack.
 - SQL is accessed with an Entra token as the deploying principal, which
   `shared-deploy-lab.ps1` sets as the SQL MI Entra admin (plus Directory Readers on the
   MI identity). No shared SQL password is distributed.
-- The scripts read `../databasebackup/*.bak` and `../csvdata/*.csv` and reuse
-  `../infra/modules`, so **mount the repo root** (not just this folder) for local testing.
+- The scripts read `databasebackup/*.bak` and `csvdata/*.csv` and reuse
+  `infra/modules`, all local to this folder, so **mount this `labautomation` folder** for local testing.
 
 ## Local testing
 
-Run the [adminpwsh](https://github.com/qxsch/adminpwsh) container from the **repo root**
-so the scripts can reach `../databasebackup`, `../csvdata` and `../infra`:
+Run the [adminpwsh](https://github.com/qxsch/adminpwsh) container from the
+**`labautomation` folder** so the scripts can reach `databasebackup`, `csvdata` and `infra`:
 
 ```powershell
 docker run -it -v "${PWD}:/app" --rm "ghcr.io/qxsch/adminpwsh:latest"
@@ -48,7 +48,7 @@ production — do not add these logins to the scripts):
 ```powershell
 Connect-AzAccount -UseDeviceAuthentication
 az login --use-device-code
-cd /app/labautomation
+cd /app
 ```
 
 Then run the two hooks in the real order. Pass more than one object id to

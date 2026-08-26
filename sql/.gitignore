@@ -1,9 +1,0 @@
-# SQL scripts
-
-# Tracked: *.sql source files for schema, jobs and stored procedures.
-
-# Ignore generated / runtime artifacts:
-*.log        # SQL execution / error logs
-*.trc        # SQL Profiler trace files
-*.tmp
-*.bak        # database backups belong in databasebackup/

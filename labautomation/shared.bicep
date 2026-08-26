@@ -1,6 +1,6 @@
 // Shared infrastructure for one subscription, deployed once by shared-deploy-lab.ps1
 // into the dedicated rg-shared resource group. Reuses the Phase 1 modules under
-// ../infra/modules (the local-test container mounts the repo root).
+// infra/modules.
 //
 // Non-ARM follow-up performed by shared-deploy-lab.ps1 after this template:
 //   - SQL MI Directory-Readers grant + Entra admin
@@ -35,7 +35,7 @@ var commonTags = {
   SecurityControl: 'Ignore'
 }
 
-module vnet '../infra/modules/vnet.bicep' = {
+module vnet 'infra/modules/vnet.bicep' = {
   name: 'shared-vnet'
   params: {
     location: location
@@ -44,7 +44,7 @@ module vnet '../infra/modules/vnet.bicep' = {
   }
 }
 
-module sqlManagedInstance '../infra/modules/sqlManagedInstance.bicep' = {
+module sqlManagedInstance 'infra/modules/sqlManagedInstance.bicep' = {
   name: 'shared-sqlmi'
   params: {
     location: location
@@ -57,7 +57,7 @@ module sqlManagedInstance '../infra/modules/sqlManagedInstance.bicep' = {
   }
 }
 
-module appService '../infra/modules/appService.bicep' = {
+module appService 'infra/modules/appService.bicep' = {
   name: 'shared-webshop'
   params: {
     location: location
@@ -71,7 +71,7 @@ module appService '../infra/modules/appService.bicep' = {
   }
 }
 
-module storageBackups '../infra/modules/storageBackups.bicep' = {
+module storageBackups 'infra/modules/storageBackups.bicep' = {
   name: 'shared-backups'
   params: {
     location: location
@@ -81,7 +81,7 @@ module storageBackups '../infra/modules/storageBackups.bicep' = {
   }
 }
 
-module fabricCapacity '../infra/modules/fabricCapacity.bicep' = {
+module fabricCapacity 'infra/modules/fabricCapacity.bicep' = {
   name: 'shared-fabric'
   params: {
     location: location
