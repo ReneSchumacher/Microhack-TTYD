@@ -1,26 +1,23 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
-    MicroHack shared deployment hook. Runs once per subscription, before any
-    deploy-lab.ps1, and provisions everything the individual attendee labs build on:
-    the shared VNet, one SQL Managed Instance, one Fabric F32 capacity, the backup
-    storage account, the shared webshop App Service, the demo databases, the shared
-    stored procedure / product / Agent job, and the Fabric VNet data gateway.
-
-.NOTES
-    The platform has already authenticated Az PowerShell and the Azure CLI against
-    $SubscriptionId with an isolated profile. Do NOT call Connect-AzAccount / az login.
-    All helper cmdlets (New-MhhStablePassword, Get-MhhLabUser, Update-MhhToken, ...)
-    are auto-imported. Resources reused from the repo root (../databasebackup,
-    ../infra/modules via shared.bicep) require the repo root to be mounted for local
-    testing (see labautomation/README.md).
+Hook that runs once per subscription before any deploy-lab.ps1 run starts.
+.DESCRIPTION
+Hook that runs before the per-user deploy-lab.ps1 runs are started. It can be used to deploy shared resources on a subscription level
+(e.g. a hub VNet) or to prepare the subscription once instead of once per lab (e.g. registering resource providers).
+If it fails for any subscription, no deploy-lab.ps1 runs at all. Emitted HackboxCredential entries are stored for every lab in this subscription.
+.PARAMETER SubscriptionId
+Specifies the Azure subscription that contains the lab resources.
+.PARAMETER PreferredLocation
+Specifies the preferred Azure regions (ordered by preference) for resource deployment.
+.PARAMETER AllowedEntraUserIds
+Entra user object IDs of every participant holding a lab in this subscription.
 #>
 param(
     [Parameter(Mandatory = $true)]
     [string]$SubscriptionId,
 
     [Parameter(Mandatory = $true)]
-    [string[]]$PreferredLocation,
+    [string[]]$PreferredLocation = @(),
 
     [Parameter(Mandatory = $false)]
     [string[]]$AllowedEntraUserIds = @()
