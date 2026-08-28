@@ -194,6 +194,9 @@ $sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24
 # ─────────────────────────────────────────────
 # 3. Deploy the shared ARM stack (async; SQL MI can exceed the 90-min command limit)
 # ─────────────────────────────────────────────
+# Once the SQL MI exists it has injected network intent policies into its subnet's NSG/route table;
+# redeploying those conflicts, so tell the template to reference them as existing on re-runs.
+$sqlMiNetworkingExists = -not [string]::IsNullOrWhiteSpace((az sql mi list -g $SharedResourceGroup --query "[0].id" -o tsv 2>$null))
 $depName = "shared-$(Get-Date -f yyyyMMddHHmmss)"
 Write-Host "[shared] Submitting shared.bicep deployment '$depName' into '$SharedResourceGroup'."
 New-AzResourceGroupDeployment `
@@ -201,11 +204,12 @@ New-AzResourceGroupDeployment `
     -ResourceGroupName $SharedResourceGroup `
     -TemplateFile (Join-Path $PSScriptRoot 'shared.bicep') `
     -TemplateParameterObject @{
-    location           = $location
-    sqlAdminLogin      = $SqlAdminLogin
+    location              = $location
+    sqlAdminLogin         = $SqlAdminLogin
     # Plain string, not SecureString: -AsJob cannot serialize a SecureString across the job boundary. Bicep param stays @secure().
-    sqlPassword        = $sqlPassword
-    fabricAdminMembers = $fabricAdminMembers
+    sqlPassword           = $sqlPassword
+    fabricAdminMembers    = $fabricAdminMembers
+    sqlMiNetworkingExists = $sqlMiNetworkingExists
 } `
     -AsJob | Out-Null
 
