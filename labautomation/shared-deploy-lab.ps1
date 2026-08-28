@@ -155,13 +155,35 @@ foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
 # ─────────────────────────────────────────────
 # 2. Resolve the deploying service principal (becomes SQL MI Entra admin)
 # ─────────────────────────────────────────────
-$spObjectId = (Get-AzADServicePrincipal -ApplicationId (Get-AzContext).Account.Id -ErrorAction SilentlyContinue).Id
-if (-not $spObjectId) {
-    $spObjectId = az ad sp show --id (Get-AzContext).Account.Id --query id -o tsv 2>$null
+$account = (Get-AzContext).Account.Id
+$spObjectId = $null
+if ($account -as [guid]) {
+    $spObjectId = (Get-AzADServicePrincipal -ApplicationId $account -ErrorAction SilentlyContinue).Id
+    if (-not $spObjectId) {
+        $spObjectId = az ad sp show --id $account --query id -o tsv 2>$null
+    }
 }
-if (-not $spObjectId) { throw "Could not resolve the deploying service principal object id." }
+if (-not $spObjectId) {
+    # Local testing runs as a user, not an SP; fall back to the signed-in user.
+    $spObjectId = (Get-AzADUser -SignedIn -ErrorAction SilentlyContinue).Id
+}
+if (-not $spObjectId) { throw "Could not resolve the deploying principal object id." }
 
-$fabricAdminMembers = @($spObjectId) + ($AllowedEntraUserIds | Where-Object { $_ }) | Select-Object -Unique
+# Fabric capacity admin members: users must be UPNs (object IDs are rejected); a service principal uses its object ID.
+$fabricMemberList = [System.Collections.Generic.List[string]]::new()
+if ($account -as [guid]) {
+    $fabricMemberList.Add($spObjectId)   # deploying service principal
+}
+else {
+    $fabricMemberList.Add($account)       # deploying user's UPN
+}
+foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
+    $memberUpn = (Get-MhhLabUser -UserId $uid -ErrorAction SilentlyContinue).UserPrincipalName
+    if (-not $memberUpn) { $memberUpn = (Get-AzADUser -ObjectId $uid -ErrorAction SilentlyContinue).UserPrincipalName }
+    if ($memberUpn) { $fabricMemberList.Add($memberUpn) }
+    else { Write-Warning "[shared] Could not resolve a UPN for '$uid'; omitting it from Fabric admin members." }
+}
+$fabricAdminMembers = @($fabricMemberList | Select-Object -Unique)
 $sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24
 
 # ─────────────────────────────────────────────
@@ -176,7 +198,8 @@ New-AzResourceGroupDeployment `
     -TemplateParameterObject @{
     location           = $location
     sqlAdminLogin      = $SqlAdminLogin
-    sqlPassword        = (ConvertTo-SecureString $sqlPassword -AsPlainText -Force)
+    # Plain string, not SecureString: -AsJob cannot serialize a SecureString across the job boundary. Bicep param stays @secure().
+    sqlPassword        = $sqlPassword
     fabricAdminMembers = $fabricAdminMembers
 } `
     -AsJob | Out-Null
@@ -184,7 +207,9 @@ New-AzResourceGroupDeployment `
 do {
     Start-Sleep -Seconds 30
     Update-MhhToken
-    $state = (Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName -ErrorAction SilentlyContinue).ProvisioningState
+    # Guard the property access: under Set-StrictMode the deployment may not be registered yet (returns $null).
+    $dep = Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName -ErrorAction SilentlyContinue
+    $state = if ($dep) { $dep.ProvisioningState } else { $null }
     Write-Host "[shared] deployment state: $state"
 } while ($state -notin 'Succeeded', 'Failed', 'Canceled')
 
