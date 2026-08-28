@@ -143,6 +143,11 @@ if (-not $spObjectId) {
 }
 if (-not $spObjectId) { throw "Could not resolve the deploying principal object id." }
 
+# Entra admin for the SQL MI (enables Entra auth; set declaratively with an explicit sid so ARM does not resolve the principal).
+$aadTenantId = (Get-AzContext).Tenant.Id
+$aadAdminLogin = if ($account -as [guid]) { (Get-AzADServicePrincipal -Id $spObjectId -ErrorAction SilentlyContinue).DisplayName } else { $account }
+if (-not $aadAdminLogin) { $aadAdminLogin = 'MicroHackDeployer' }
+
 # Fabric capacity admin members: users must be UPNs (object IDs are rejected); a service principal uses its object ID.
 $fabricMemberList = [System.Collections.Generic.List[string]]::new()
 if ($account -as [guid]) {
@@ -179,6 +184,9 @@ New-AzResourceGroupDeployment `
     sqlPassword           = $sqlPassword
     fabricAdminMembers    = $fabricAdminMembers
     sqlMiNetworkingExists = $sqlMiNetworkingExists
+    sqlAadAdminLogin      = $aadAdminLogin
+    sqlAadAdminSid        = $spObjectId
+    sqlAadAdminTenantId   = $aadTenantId
 } `
     -AsJob | Out-Null
 
