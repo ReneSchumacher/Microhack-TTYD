@@ -53,6 +53,11 @@ if (-not (Get-Module -ListAvailable -Name SqlServer)) {
 }
 Import-Module SqlServer -ErrorAction Stop
 
+function Update-MhhTokenQuiet {
+    # Refresh Azure credentials; Update-MhhToken's status object is shown only with -Verbose.
+    Update-MhhToken | Out-String | Write-Verbose
+}
+
 function Get-DbAccessToken {
     $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
     if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
@@ -206,7 +211,7 @@ New-AzResourceGroupDeployment `
 
 do {
     Start-Sleep -Seconds 30
-    Update-MhhToken
+    Update-MhhTokenQuiet
     # Guard the property access: under Set-StrictMode the deployment may not be registered yet (returns $null).
     $dep = Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName -ErrorAction SilentlyContinue
     $state = if ($dep) { $dep.ProvisioningState } else { $null }
@@ -235,7 +240,7 @@ $server = "$publicFqdn,3342"
 # ─────────────────────────────────────────────
 # 4. Entra: Directory Readers for the MI identity + MI Entra admin (deploying SP)
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 Ensure-DirectoryReadersForIdentity -PrincipalId $miIdentity
 
 $existingAdmin = az sql mi ad-admin list --resource-group $SharedResourceGroup --managed-instance $miName --query "[0].sid" -o tsv 2>$null
@@ -249,7 +254,7 @@ if (-not $existingAdmin) {
 # ─────────────────────────────────────────────
 # 5. Upload the .bak files and restore the demo databases
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 $storageKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query "[0].value" -o tsv
 if ($LASTEXITCODE -ne 0) { throw "Failed to read storage key for '$storageAccount'." }
 
@@ -311,7 +316,7 @@ if ($jobExists -ne 1) {
 # ─────────────────────────────────────────────
 # 7. Fabric VNet data gateway + ConnectionCreator for every attendee
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 $capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
 if (-not $capacity) { throw "Fabric capacity '$capacityName' not visible via the Fabric API (check tenant setting 'Service principals can use Fabric APIs')." }
 

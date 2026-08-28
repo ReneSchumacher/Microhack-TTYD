@@ -45,6 +45,11 @@ if (-not (Get-Module -ListAvailable -Name SqlServer)) {
 }
 Import-Module SqlServer -ErrorAction Stop
 
+function Update-MhhTokenQuiet {
+    # Refresh Azure credentials; Update-MhhToken's status object is shown only with -Verbose.
+    Update-MhhToken | Out-String | Write-Verbose
+}
+
 function Get-DbAccessToken {
     $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
     if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
@@ -102,7 +107,7 @@ $server = "$publicFqdn,3342"
 # ─────────────────────────────────────────────
 # 1. Per-attendee ARM resources (CSV storage) into the attendee's RG
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 $rgResult = Invoke-MhhDeploymentWithRegionFallback `
     -PreferredLocations    $PreferredLocation `
     -ResourceGroupName     $ResourceGroupName `
@@ -125,7 +130,7 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to upload employee CSV." }
 # ─────────────────────────────────────────────
 # 2. Restore the two attendee databases in the shared SQL MI
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 $storageAccount = az storage account list -g $SharedResourceGroup --query "[0].name" -o tsv
 $containerName = 'build'
 $storageKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query "[0].value" -o tsv
@@ -161,7 +166,7 @@ foreach ($r in $restores) {
 # ─────────────────────────────────────────────
 # 3. Attendee login/user (db_owner) + product in each database
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 Invoke-MiSql -Server $server -Database 'master' -QueryTimeout 60 -Query @"
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$upn')
     CREATE LOGIN [$upn] FROM EXTERNAL PROVIDER;
@@ -189,7 +194,7 @@ if ($productExists -ne 1) {
 # ─────────────────────────────────────────────
 # 4. Fabric workspace on the shared capacity + attendee as Member
 # ─────────────────────────────────────────────
-Update-MhhToken
+Update-MhhTokenQuiet
 $capacityName = az resource list -g $SharedResourceGroup --resource-type 'Microsoft.Fabric/capacities' --query "[0].name" -o tsv
 $capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
 if (-not $capacity) { throw "Fabric capacity '$capacityName' not visible via the Fabric API." }
