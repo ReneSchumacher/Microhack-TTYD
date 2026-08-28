@@ -4,6 +4,7 @@
     "az": true,
     "git add": true,
     "git mv": true,
-    "git rm": true
+    "git rm": true,
+    "docker exec": true
   }
 }
