@@ -32,8 +32,8 @@ $ErrorActionPreference = 'Stop'
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
-$GraphApi = 'https://graph.microsoft.com/v1.0'
-$RequiredProviders = @('Microsoft.Sql', 'Microsoft.Fabric', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.Network')
+# Microsoft.PowerPlatform is required for the Fabric VNet data gateway's subnet delegation.
+$RequiredProviders = @('Microsoft.Sql', 'Microsoft.Fabric', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.Network', 'Microsoft.PowerPlatform')
 
 # Demo databases restored once for the whole subscription: DB name -> backup file.
 $TailspinToysBak = 'tailspintoys_before_launch.bak'
@@ -58,12 +58,6 @@ function Update-MhhTokenQuiet {
     Update-MhhToken | Out-String | Write-Verbose
 }
 
-function Get-DbAccessToken {
-    $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
-    if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
-    return $t
-}
-
 function Invoke-MiSql {
     param(
         [Parameter(Mandatory = $true)][string]$Server,
@@ -72,10 +66,12 @@ function Invoke-MiSql {
         [string]$InputFile,
         [int]$QueryTimeout = 0
     )
+    # SQL authentication with the MI admin login: the platform cannot set an Entra admin on the MI.
+    $cred = [pscredential]::new($SqlAdminLogin, (ConvertTo-SecureString $sqlPassword -AsPlainText -Force))
     $splat = @{
         ServerInstance    = $Server
         Database          = $Database
-        AccessToken       = (Get-DbAccessToken)
+        Credential        = $cred
         ConnectionTimeout = 30
         QueryTimeout      = $QueryTimeout
         ErrorAction       = 'Stop'
@@ -102,33 +98,6 @@ function Invoke-FabricApi {
     }
     if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
     return ($raw | ConvertFrom-Json)
-}
-
-function Ensure-DirectoryReadersForIdentity {
-    param([Parameter(Mandatory = $true)][string]$PrincipalId)
-
-    # Directory Readers well-known template id.
-    $templateId = '88d8e3e3-8f55-4a1e-953a-9b9898b8876b'
-    # Activate the directory role if it is only present as a template.
-    $roles = (az rest --method GET --url "$GraphApi/directoryRoles" --resource 'https://graph.microsoft.com' 2>$null | ConvertFrom-Json).value
-    $role = $roles | Where-Object { $_.roleTemplateId -eq $templateId } | Select-Object -First 1
-    if (-not $role) {
-        $activated = az rest --method POST --url "$GraphApi/directoryRoles" --resource 'https://graph.microsoft.com' `
-            --headers 'Content-Type=application/json' --body (@{ roleTemplateId = $templateId } | ConvertTo-Json -Compress) 2>&1 | ConvertFrom-Json
-        $role = $activated
-    }
-    # Is the identity already a member?
-    $members = (az rest --method GET --url "$GraphApi/directoryRoles/$($role.id)/members" --resource 'https://graph.microsoft.com' 2>$null | ConvertFrom-Json).value
-    if ($members | Where-Object { $_.id -eq $PrincipalId }) {
-        Write-Host "[shared] SQL MI identity already has Directory Readers."
-        return
-    }
-    $ref = @{ '@odata.id' = "$GraphApi/directoryObjects/$PrincipalId" } | ConvertTo-Json -Compress
-    az rest --method POST --url "$GraphApi/directoryRoles/$($role.id)/members/`$ref" --resource 'https://graph.microsoft.com' `
-        --headers 'Content-Type=application/json' --body $ref 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed to add SQL MI identity to Directory Readers." }
-    Write-Host "[shared] Granted Directory Readers to SQL MI identity. Waiting for propagation."
-    Start-Sleep -Seconds 60
 }
 
 # ─────────────────────────────────────────────
@@ -229,7 +198,6 @@ if ($state -ne 'Succeeded') {
 $out = (Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName).Outputs
 $miName = $out.sqlManagedInstanceName.Value
 $miFqdn = $out.sqlManagedInstanceFqdn.Value
-$miIdentity = $out.sqlManagedInstanceIdentityPrincipalId.Value
 $capacityName = $out.fabricCapacityName.Value
 $vnetName = $out.vnetName.Value
 $fabricSubnet = $out.fabricSubnetName.Value
@@ -242,18 +210,16 @@ $publicFqdn = $miFqdn -replace '^([^.]+)\.', '$1.public.'
 $server = "$publicFqdn,3342"
 
 # ─────────────────────────────────────────────
-# 4. Entra: Directory Readers for the MI identity + MI Entra admin (deploying SP)
+# 4. Entra: Directory Readers for the MI identity (needed for external-provider logins)
 # ─────────────────────────────────────────────
 Update-MhhTokenQuiet
-Ensure-DirectoryReadersForIdentity -PrincipalId $miIdentity
-
-$existingAdmin = az sql mi ad-admin list --resource-group $SharedResourceGroup --managed-instance $miName --query "[0].sid" -o tsv 2>$null
-if (-not $existingAdmin) {
-    Write-Host "[shared] Setting SQL MI Entra admin to the deploying principal."
-    az sql mi ad-admin create --resource-group $SharedResourceGroup --managed-instance $miName `
-        --display-name 'MicroHackDeployer' --object-id $spObjectId 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed to set SQL MI Entra admin." }
+# Grant the SQL MI managed identity Directory Readers via the platform helper (handles the tenant-wide directory-role lock and is idempotent).
+$drResult = @(Get-AzSqlInstance -ResourceGroupName $SharedResourceGroup -Name $miName |
+        Set-MhhManagedIdentityRoleMember -Role 'Directory Readers')
+if ($drResult.status -contains 'Failed') {
+    throw "Failed to grant Directory Readers to the SQL MI identity."
 }
+Write-Host "[shared] SQL MI identity Directory Readers: $($drResult.status -join ', ')."
 
 # ─────────────────────────────────────────────
 # 5. Upload the .bak files and restore the demo databases

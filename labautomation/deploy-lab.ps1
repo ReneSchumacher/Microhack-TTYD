@@ -33,9 +33,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $SharedResourceGroup = 'rg-shared'
+$SqlAdminLogin = 'sqlmiadmin'
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
 $TailspinToysBak = 'tailspintoys_before_launch.bak'
 $TailspinToysFeedbackBak = 'tailspintoysfeedback_before_launch.bak'
+# Shared MI admin password: derive at subscription scope so it matches the shared hook's value.
+$sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24 -ResourceGroupName ''
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -50,12 +53,6 @@ function Update-MhhTokenQuiet {
     Update-MhhToken | Out-String | Write-Verbose
 }
 
-function Get-DbAccessToken {
-    $t = (Get-AzAccessToken -ResourceUrl 'https://database.windows.net/').Token
-    if ($t -is [System.Security.SecureString]) { return (ConvertFrom-SecureString $t -AsPlainText) }
-    return $t
-}
-
 function Invoke-MiSql {
     param(
         [Parameter(Mandatory = $true)][string]$Server,
@@ -63,7 +60,9 @@ function Invoke-MiSql {
         [string]$Query,
         [int]$QueryTimeout = 0
     )
-    Invoke-Sqlcmd -ServerInstance $Server -Database $Database -AccessToken (Get-DbAccessToken) `
+    # SQL authentication with the MI admin login: the platform cannot set an Entra admin on the MI.
+    $cred = [pscredential]::new($SqlAdminLogin, (ConvertTo-SecureString $sqlPassword -AsPlainText -Force))
+    Invoke-Sqlcmd -ServerInstance $Server -Database $Database -Credential $cred `
         -Query $Query -ConnectionTimeout 30 -QueryTimeout $QueryTimeout -ErrorAction Stop
 }
 
