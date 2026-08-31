@@ -25,6 +25,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Invoke-Sqlcmd/Az cmdlets emit Write-Progress records that the runner's child-job receiver can't
+# deserialize cleanly (surfaces as "NotSpecified: (:String) [], RemoteException"), which flips the
+# runner's own success verdict even though the script itself completes without error.
+$ProgressPreference = 'SilentlyContinue'
 $script:SharedCurrentStep = 'initialization'
 # Commented out to test whether trap's rethrow is what makes the runner see this as failed.
 # trap {
@@ -150,8 +154,11 @@ foreach ($rp in $RequiredProviders) {
 }
 
 # ─────────────────────────────────────────────
-# 1. Shared resource group + Owner for every attendee in this subscription
+# 1. Shared resource group (created once; attendees get no RBAC here)
 # ─────────────────────────────────────────────
+# Attendees never touch rg-shared directly: the SQL MI is reached via a SQL login (deploy-lab.ps1)
+# and Fabric via a per-attendee workspace Member role, not Azure RBAC on this resource group. Granting
+# RBAC here would let any attendee modify/delete resources shared by every lab in the subscription.
 if (-not (Get-AzResourceGroup -Name $SharedResourceGroup -ErrorAction SilentlyContinue)) {
     Start-SharedStep "Create shared resource group"
     New-AzResourceGroup -Name $SharedResourceGroup -Location $location -Tag @{ SecurityControl = 'Ignore' } | Out-Null
@@ -159,13 +166,6 @@ if (-not (Get-AzResourceGroup -Name $SharedResourceGroup -ErrorAction SilentlyCo
 }
 $rgId = (Get-AzResourceGroup -Name $SharedResourceGroup).ResourceId
 Write-SharedTrace "Shared resource group id: $rgId"
-Start-SharedStep "Ensure attendee Owner assignments"
-foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
-    Write-SharedTrace "Ensuring Owner role on shared resource group for attendee object id '$uid'."
-    if (-not (Get-AzRoleAssignment -ObjectId $uid -Scope $rgId -RoleDefinitionName 'Owner' -ErrorAction SilentlyContinue)) {
-        New-AzRoleAssignment -ObjectId $uid -Scope $rgId -RoleDefinitionName 'Owner' -ErrorAction SilentlyContinue | Out-Null
-    }
-}
 
 # ─────────────────────────────────────────────
 # 2. Resolve principals and bootstrap the Fabric tenant
@@ -191,7 +191,7 @@ if (-not $spObjectId) {
 if (-not $spObjectId) { throw "Could not resolve the deploying principal object id." }
 Write-SharedTrace "Deploying principal object id resolved: $spObjectId"
 
-# Resolve every attendee once; reused for Fabric licensing, capacity admins and the SQL MI Entra admin.
+# Resolve every attendee once; reused below for the SQL MI Entra admin and the Fabric gateway role assignments.
 Start-SharedStep "Resolve lab users"
 $labUsers = [System.Collections.Generic.List[object]]::new()
 foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
@@ -214,7 +214,7 @@ Write-SharedTrace "Resolved $($labUsers.Count) lab users: $((@($labUsers | ForEa
 
 $firstLabUser = $labUsers | Where-Object { $_.ShortName -match '(?i)labuser-[0-9]{4}' } | Sort-Object ShortName | Select-Object -First 1
 if (-not $firstLabUser) { $firstLabUser = $labUsers | Sort-Object ShortName | Select-Object -First 1 }
-Write-SharedTrace "Fabric bootstrap user: $($firstLabUser.UserPrincipalName) ($($firstLabUser.Id))."
+Write-SharedTrace "SQL MI Entra admin candidate: $($firstLabUser.UserPrincipalName) ($($firstLabUser.Id))."
 
 # The 'M365-E5-Users' group request in lab-defaults.json licenses every attendee for Fabric; we cannot
 # assign it ourselves here. Poll (read-only) until the tenant is recognised rather than letting the
@@ -237,7 +237,10 @@ if (-not $fabricTenantReady) {
     Write-Warning "[shared] Fabric did not confirm the tenant within 10 minutes. Continuing; the capacity deployment will report the real cause."
 }
 
-# Fabric capacity admin members: users must be UPNs (object IDs are rejected); a service principal uses its object ID.
+# Fabric capacity admin members: only the deploying principal needs capacity-wide admin (VNet gateway
+# setup, etc.). Attendees only need their own workspace's Member role, granted per-attendee in
+# deploy-lab.ps1 - giving them capacity admin would let anyone pause/reconfigure the shared capacity.
+# Users must be UPNs (object IDs are rejected); a service principal uses its object ID.
 $fabricMemberList = [System.Collections.Generic.List[string]]::new()
 if ($account -as [guid]) {
     $fabricMemberList.Add($spObjectId)   # deploying service principal
@@ -245,7 +248,6 @@ if ($account -as [guid]) {
 else {
     $fabricMemberList.Add($account)       # deploying user's UPN
 }
-foreach ($labUser in $labUsers) { $fabricMemberList.Add($labUser.UserPrincipalName) }
 $fabricAdminMembers = @($fabricMemberList | Select-Object -Unique)
 $sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24
 Write-SharedTrace "Prepared $($fabricAdminMembers.Count) Fabric capacity admin members. SQL admin password generated but not printed."
