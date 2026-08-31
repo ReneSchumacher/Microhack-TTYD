@@ -75,6 +75,8 @@ function Write-SharedTrace {
         [Parameter(Mandatory = $true)][string]$Message
     )
     Write-Host "[shared][trace] $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
+    # Some log viewers only surface stdout in bulk; force a flush so progress is visible live.
+    [Console]::Out.Flush()
 }
 
 function Start-SharedStep {
@@ -281,6 +283,7 @@ do {
     $dep = Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName -ErrorAction SilentlyContinue
     $state = if ($dep) { $dep.ProvisioningState } else { $null }
     Write-Host "[shared] deployment state: $state"
+    [Console]::Out.Flush()
 } while ($state -notin 'Succeeded', 'Failed', 'Canceled')
 
 if ($state -ne 'Succeeded') {
