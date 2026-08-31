@@ -107,7 +107,7 @@ module fabricCapacity 'modules/fabricCapacity.bicep' = {
   params: {
     location: location
     envName: envName
-    skuName: 'F2'
+    skuName: 'F32'
     administrationMembers: [
       sqlMiEntraAdminLogin
     ]
