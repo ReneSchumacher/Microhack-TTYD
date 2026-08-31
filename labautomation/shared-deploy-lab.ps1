@@ -41,15 +41,9 @@ trap {
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
-$GraphApi = 'https://graph.microsoft.com/v1.0'
-# Power BI Free. Assigning it to a user is what makes the tenant known to Fabric; without it
-# Microsoft.Fabric/capacities fails with "Tenant ... wasn't recognized by Microsoft Fabric".
-$FabricLicenseSkuPartNumber = 'POWER_BI_STANDARD'
-$FabricLicenseSkuId = 'a403ebcc-fae0-4ca2-8c8c-7a907fd6c235'
-# Only needs to be a country Power BI is offered in; it gates license assignment, nothing else.
-$FabricUsageLocation = 'DE'
-# Toggle for the license-assignment/tenant-provisioning bootstrap below; disabled again pending a fix.
-$FabricLicenseAssignmentEnabled = $false
+# Fabric requires a licensed user in the tenant before it recognises it; the deploying principal cannot
+# grant that license (no Graph write permission), so it comes from the 'M365-E5-Users' group request in
+# lab-defaults.json instead. We only poll for it here.
 # Microsoft.PowerPlatform is required for the Fabric VNet data gateway's subnet delegation.
 $RequiredProviders = @('Microsoft.Sql', 'Microsoft.Fabric', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.Network', 'Microsoft.PowerPlatform')
 
@@ -113,29 +107,6 @@ function Invoke-MiSql {
     $source = if ($InputFile) { "file '$InputFile'" } else { 'inline query' }
     Write-SharedTrace "SQL $Database on $Server using $source. Timeout=$QueryTimeout."
     Invoke-Sqlcmd @splat
-}
-
-function Invoke-GraphApi {
-    param(
-        [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'PATCH')][string]$Method,
-        [Parameter(Mandatory = $true)][string]$Path,
-        [object]$Body
-    )
-    $url = "$GraphApi/$($Path.TrimStart('/'))"
-    Write-SharedTrace "Graph $Method $Path"
-    $azArgs = @('rest', '--method', $Method, '--url', $url, '--resource', 'https://graph.microsoft.com')
-    if ($Body) {
-        Write-SharedTrace "Graph $Method $Path includes body properties: $(($Body.Keys | Sort-Object) -join ', ')"
-        $azArgs += @('--headers', 'Content-Type=application/json', '--body', ($Body | ConvertTo-Json -Depth 10 -Compress))
-    }
-    $raw = az @azArgs 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "[shared] Graph $Method $Path failed with exit code $LASTEXITCODE. Raw response: $raw"
-        throw "Graph $Method $Path failed: $raw"
-    }
-    Write-SharedTrace "Graph $Method $Path succeeded."
-    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-    return ($raw | ConvertFrom-Json)
 }
 
 function Invoke-FabricApi {
@@ -244,65 +215,25 @@ $firstLabUser = $labUsers | Where-Object { $_.ShortName -match '(?i)labuser-[0-9
 if (-not $firstLabUser) { $firstLabUser = $labUsers | Sort-Object ShortName | Select-Object -First 1 }
 Write-SharedTrace "Fabric bootstrap user: $($firstLabUser.UserPrincipalName) ($($firstLabUser.Id))."
 
-# A service principal cannot sign a tenant up for Fabric; only a licensed user can. Every attendee is
-# licensed anyway (they need it to open Fabric), and the first assignment provisions the tenant.
-if ($FabricLicenseAssignmentEnabled) {
-    Start-SharedStep "Assume Fabric license SKU"
-    Write-SharedTrace "Skipping Graph subscribedSkus lookup; using known SKU '$FabricLicenseSkuPartNumber' with skuId '$FabricLicenseSkuId'."
-
-    foreach ($labUser in $labUsers) {
-        Start-SharedStep "Ensure Fabric license for $($labUser.UserPrincipalName)"
-        $isBootstrapUser = $labUser.Id -eq $firstLabUser.Id
-        try {
-            Write-SharedTrace "Checking Fabric license for $($labUser.UserPrincipalName) ($($labUser.Id))."
-            $graphUser = Invoke-GraphApi -Method GET -Path "users/$($labUser.Id)?`$select=id,usageLocation,assignedLicenses"
-            # ForEach-Object (not dotted member-enumeration) so an empty assignedLicenses array doesn't
-            # trip Set-StrictMode's "property cannot be found" check.
-            $existingSkuIds = @($graphUser.assignedLicenses | ForEach-Object { $_.skuId })
-            if ($existingSkuIds -contains $FabricLicenseSkuId) {
-                Write-Host "[shared] $($labUser.UserPrincipalName) already holds $FabricLicenseSkuPartNumber."
-                continue
-            }
-            # assignLicense rejects users without a usage location.
-            if (-not $graphUser.usageLocation) {
-                Write-SharedTrace "Setting usageLocation '$FabricUsageLocation' for $($labUser.UserPrincipalName)."
-                Invoke-GraphApi -Method PATCH -Path "users/$($labUser.Id)" -Body @{ usageLocation = $FabricUsageLocation } | Out-Null
-            }
-            Write-SharedTrace "Assigning SKU '$FabricLicenseSkuPartNumber' to $($labUser.UserPrincipalName)."
-            Invoke-GraphApi -Method POST -Path "users/$($labUser.Id)/assignLicense" -Body @{
-                addLicenses    = @(@{ skuId = $FabricLicenseSkuId; disabledPlans = @() })
-                removeLicenses = @()
-            } | Out-Null
-            Write-Host "[shared] Assigned $FabricLicenseSkuPartNumber to $($labUser.UserPrincipalName)."
-        }
-        catch {
-            if ($isBootstrapUser) { throw "Could not license '$($labUser.UserPrincipalName)' for Fabric, so the tenant cannot be provisioned: $($_.Exception.Message)" }
-            Write-Warning "[shared] Fabric license for $($labUser.UserPrincipalName) failed: $($_.Exception.Message)"
-        }
+# The 'M365-E5-Users' group request in lab-defaults.json licenses every attendee for Fabric; we cannot
+# assign it ourselves here. Poll (read-only) until the tenant is recognised rather than letting the
+# capacity deployment fail outright while that group-based provisioning is still catching up.
+$fabricTenantReady = $false
+Start-SharedStep "Wait for Fabric tenant provisioning"
+for ($elapsed = 0; $elapsed -lt 600; $elapsed += 30) {
+    try {
+        Invoke-FabricApi -Method GET -Path 'capacities' | Out-Null
+        $fabricTenantReady = $true
+        Write-Host "[shared] Fabric recognises this tenant."
+        break
     }
-
-    # Tenant provisioning is asynchronous. Poll until the Fabric API answers rather than letting the
-    # capacity deployment fail; on timeout continue anyway so ARM produces the authoritative error.
-    $fabricTenantReady = $false
-    Start-SharedStep "Wait for Fabric tenant provisioning"
-    for ($elapsed = 0; $elapsed -lt 600; $elapsed += 30) {
-        try {
-            Invoke-FabricApi -Method GET -Path 'capacities' | Out-Null
-            $fabricTenantReady = $true
-            Write-Host "[shared] Fabric recognises this tenant."
-            break
-        }
-        catch {
-            Write-Host "[shared] Waiting for Fabric tenant provisioning ($elapsed s)..."
-            Start-Sleep -Seconds 30
-        }
-    }
-    if (-not $fabricTenantReady) {
-        Write-Warning "[shared] Fabric did not confirm the tenant within 10 minutes. Continuing; the capacity deployment will report the real cause."
+    catch {
+        Write-Host "[shared] Waiting for Fabric tenant provisioning ($elapsed s)..."
+        Start-Sleep -Seconds 30
     }
 }
-else {
-    Write-Host "[shared] Fabric license assignment is disabled (`$FabricLicenseAssignmentEnabled = `$false); skipping license bootstrap and tenant-provisioning wait."
+if (-not $fabricTenantReady) {
+    Write-Warning "[shared] Fabric did not confirm the tenant within 10 minutes. Continuing; the capacity deployment will report the real cause."
 }
 
 # Fabric capacity admin members: users must be UPNs (object IDs are rejected); a service principal uses its object ID.
