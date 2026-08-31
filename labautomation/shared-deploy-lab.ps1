@@ -26,14 +26,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:SharedCurrentStep = 'initialization'
-trap {
-    Write-Warning "[shared] FAILED during step '$script:SharedCurrentStep'."
-    Write-Warning "[shared] Exception: $($_.Exception.Message)"
-    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
-        Write-Warning "[shared] Location: $($_.InvocationInfo.PositionMessage)"
-    }
-    throw
-}
+# Commented out to test whether trap's rethrow is what makes the runner see this as failed.
+# trap {
+#     Write-Warning "[shared] FAILED during step '$script:SharedCurrentStep'."
+#     Write-Warning "[shared] Exception: $($_.Exception.Message)"
+#     if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+#         Write-Warning "[shared] Location: $($_.InvocationInfo.PositionMessage)"
+#     }
+#     throw
+# }
 
 # ─────────────────────────────────────────────
 # Constants
@@ -75,8 +76,6 @@ function Write-SharedTrace {
         [Parameter(Mandatory = $true)][string]$Message
     )
     Write-Host "[shared][trace] $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
-    # Some log viewers only surface stdout in bulk; force a flush so progress is visible live.
-    [Console]::Out.Flush()
 }
 
 function Start-SharedStep {
@@ -283,7 +282,6 @@ do {
     $dep = Get-AzResourceGroupDeployment -ResourceGroupName $SharedResourceGroup -Name $depName -ErrorAction SilentlyContinue
     $state = if ($dep) { $dep.ProvisioningState } else { $null }
     Write-Host "[shared] deployment state: $state"
-    [Console]::Out.Flush()
 } while ($state -notin 'Succeeded', 'Failed', 'Canceled')
 
 if ($state -ne 'Succeeded') {
@@ -491,3 +489,5 @@ foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
 @{ HackboxCredential = @{ name = 'Shared Resource Group'; value = $SharedResourceGroup; note = 'Shared by all labs in your subscription' } }
 
 Write-Host "[shared] Shared deployment complete."
+# Guard against a stale non-zero $LASTEXITCODE from an earlier, already-handled native command call.
+exit 0
