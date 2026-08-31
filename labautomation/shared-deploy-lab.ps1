@@ -253,7 +253,10 @@ foreach ($labUser in $labUsers) {
     try {
         Write-SharedTrace "Checking Fabric license for $($labUser.UserPrincipalName) ($($labUser.Id))."
         $graphUser = Invoke-GraphApi -Method GET -Path "users/$($labUser.Id)?`$select=id,usageLocation,assignedLicenses"
-        if ($graphUser.assignedLicenses.skuId -contains $FabricLicenseSkuId) {
+        # ForEach-Object (not dotted member-enumeration) so an empty assignedLicenses array doesn't
+        # trip Set-StrictMode's "property cannot be found" check.
+        $existingSkuIds = @($graphUser.assignedLicenses | ForEach-Object { $_.skuId })
+        if ($existingSkuIds -contains $FabricLicenseSkuId) {
             Write-Host "[shared] $($labUser.UserPrincipalName) already holds $FabricLicenseSkuPartNumber."
             continue
         }
