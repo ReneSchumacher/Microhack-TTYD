@@ -31,6 +31,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Invoke-Sqlcmd emits progress records that the runner's child-job receiver reports as errors.
+$ProgressPreference = 'SilentlyContinue'
 
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
@@ -60,7 +62,7 @@ function Invoke-MiSql {
         [string]$Query,
         [int]$QueryTimeout = 0
     )
-    # SQL authentication with the MI admin login: the platform cannot set an Entra admin on the MI.
+    # The per-user hook is not the configured Entra admin, so use the shared MI's SQL admin credential.
     $cred = [pscredential]::new($SqlAdminLogin, (ConvertTo-SecureString $sqlPassword -AsPlainText -Force))
     Invoke-Sqlcmd -ServerInstance $Server -Database $Database -Credential $cred `
         -Query $Query -ConnectionTimeout 30 -QueryTimeout $QueryTimeout -ErrorAction Stop
@@ -123,7 +125,8 @@ $csvPath = Join-Path $PSScriptRoot 'csvdata/employees_user_data.csv'
 if (-not (Test-Path $csvPath)) { throw "Employee CSV not found: $csvPath" }
 $userStorageKey = az storage account keys list --resource-group $ResourceGroupName --account-name $userStorage --query "[0].value" -o tsv
 az storage blob upload --account-name $userStorage --account-key $userStorageKey `
-    --container-name $userContainer --name (Split-Path $csvPath -Leaf) --file $csvPath --overwrite true --only-show-errors | Out-Null
+    --container-name $userContainer --name (Split-Path $csvPath -Leaf) --file $csvPath `
+    --overwrite true --only-show-errors --no-progress | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to upload employee CSV." }
 
 # ─────────────────────────────────────────────

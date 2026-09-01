@@ -98,7 +98,7 @@ function Invoke-MiSql {
         [string]$InputFile,
         [int]$QueryTimeout = 0
     )
-    # SQL authentication with the MI admin login: the platform cannot set an Entra admin on the MI.
+    # Use SQL authentication while provisioning; the Entra admin is configured later in this hook.
     $cred = [pscredential]::new($SqlAdminLogin, (ConvertTo-SecureString $sqlPassword -AsPlainText -Force))
     $splat = @{
         ServerInstance    = $Server
@@ -249,7 +249,7 @@ else {
     $fabricMemberList.Add($account)       # deploying user's UPN
 }
 $fabricAdminMembers = @($fabricMemberList | Select-Object -Unique)
-$sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24
+$sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24 -ResourceGroupName ''
 Write-SharedTrace "Prepared $($fabricAdminMembers.Count) Fabric capacity admin members. SQL admin password generated but not printed."
 
 # ─────────────────────────────────────────────

@@ -27,9 +27,10 @@ integration for the Talk-To-Your-Data MicroHack.
 - **Fabric APIs for service principals** must be enabled in the tenant admin portal
   (the platform runs as a service principal). Without it, gateway/workspace creation
   fails.
-- SQL is accessed with an Entra token as the deploying principal, which
-  `shared-deploy-lab.ps1` sets as the SQL MI Entra admin (plus Directory Readers on the
-  MI identity). No shared SQL password is distributed.
+- The automation accesses SQL with a subscription-scoped stable administrator password;
+  both hooks derive the same value without printing or distributing it. The shared hook
+  also configures the first lab user as the SQL MI Entra admin and grants Directory Readers
+  to the MI identity for attendee login creation.
 - The scripts read `databasebackup/*.bak` and `csvdata/*.csv` and reuse
   `infra/modules`, all local to this folder, so **mount this `labautomation` folder** for local testing.
 
