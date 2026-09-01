@@ -27,7 +27,7 @@ integration for the Talk-To-Your-Data MicroHack.
 - **Fabric APIs for service principals** must be enabled in the tenant admin portal
   (the platform runs as a service principal). Without it, gateway/workspace creation
   fails.
-- The automation accesses SQL with a subscription-scoped stable administrator password;
+- The automation accesses SQL with a stable administrator password scoped to `rg-shared`;
   both hooks derive the same value without printing or distributing it. The shared hook
   also configures the first lab user as the SQL MI Entra admin and grants Directory Readers
   to the MI identity for attendee login creation.

@@ -249,7 +249,7 @@ else {
     $fabricMemberList.Add($account)       # deploying user's UPN
 }
 $fabricAdminMembers = @($fabricMemberList | Select-Object -Unique)
-$sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24 -ResourceGroupName ''
+$sqlPassword = New-MhhStablePassword -Purpose 'sql-admin' -Length 24 -ResourceGroupName $SharedResourceGroup
 Write-SharedTrace "Prepared $($fabricAdminMembers.Count) Fabric capacity admin members. SQL admin password generated but not printed."
 
 # ─────────────────────────────────────────────
