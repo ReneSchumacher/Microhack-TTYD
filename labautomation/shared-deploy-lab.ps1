@@ -380,8 +380,10 @@ foreach ($bak in @($TailspinToysBak, $TailspinToysFeedbackBak)) {
     $localBak = Join-Path $PSScriptRoot "databasebackup/$bak"
     if (-not (Test-Path $localBak)) { throw "Backup file not found: $localBak" }
     Write-Host "[shared] Uploading $bak."
+    # --no-progress: the CLI's own upload progress bar goes to stderr regardless of $ProgressPreference,
+    # which the runner's child-job receiver mis-relays as a "RemoteException" (false-positive failure).
     az storage blob upload --account-name $storageAccount --account-key $storageKey `
-        --container-name $containerName --name $bak --file $localBak --overwrite true --only-show-errors | Out-Null
+        --container-name $containerName --name $bak --file $localBak --overwrite true --only-show-errors --no-progress 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to upload $bak." }
 }
 
