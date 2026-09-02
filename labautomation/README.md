@@ -29,6 +29,10 @@ integration for the Talk-To-Your-Data MicroHack.
   workspaces, connections, and deployment pipelines** in the Fabric Admin portal, with
   the platform service principal included in an allowed security group. The second
   setting is separate and disabled by default for new tenants.
+  Instead of clicking through the portal, a Fabric/Global administrator can run
+  `enable-fabric-sp-tenant-settings.ps1 -SecurityGroupObjectId <group-object-id>`
+  (signed in as themselves, not the deployment service principal) to enable both
+  settings for the security group that contains the platform service principal.
 - The automation accesses SQL with a stable administrator password scoped to `rg-shared`;
   both hooks derive the same value without printing or distributing it. The shared hook
   also configures the first lab user as the SQL MI Entra admin and grants Directory Readers
