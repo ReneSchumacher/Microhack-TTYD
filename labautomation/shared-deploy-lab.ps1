@@ -330,7 +330,9 @@ Write-Host "[shared] SQL MI identity Directory Readers: $($drResult.status -join
 # Deliberately not done in Bicep: ARM cannot resolve the principal in the lab tenant.
 # Set-AzSqlInstanceActiveDirectoryAdministrator is unreliable here too, so PUT the
 # administrator sub-resource directly. Directory Readers must be granted first.
-Start-Sleep -Seconds 30
+# Entra directory-role assignments are eventually consistent; a short wait risks
+# ServicePrincipalLookupInAadFailedIdentityForbidden when the PUT below looks up the AAD admin.
+Start-Sleep -Seconds 300
 Update-MhhTokenQuiet
 
 Start-SharedStep "Configure SQL MI Entra admin"
@@ -370,10 +372,20 @@ Write-Host "[shared] SQL MI Entra admin is $($sqlEntraAdmin.UserPrincipalName)."
 # 5. Upload the .bak files and restore the demo databases
 # ─────────────────────────────────────────────
 Update-MhhTokenQuiet
-Start-SharedStep "Read shared backup storage key"
-$storageKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query "[0].value" -o tsv
-if ($LASTEXITCODE -ne 0) { throw "Failed to read storage key for '$storageAccount'." }
-Write-SharedTrace "Storage key retrieved for '$storageAccount'. Key value is not printed."
+# The backup storage account has shared-key auth disabled; grant the deploying principal Entra-based
+# blob access instead (covers both blob upload and generating a user-delegation SAS below).
+Start-SharedStep "Grant deploying principal blob data access on backup storage"
+$backupStorageId = az storage account show --resource-group $SharedResourceGroup --name $storageAccount --query id -o tsv
+$backupPrincipalType = if ($account -as [guid]) { 'ServicePrincipal' } else { 'User' }
+az role assignment create --assignee-object-id $spObjectId --assignee-principal-type $backupPrincipalType `
+    --role 'Storage Blob Data Contributor' --scope $backupStorageId 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[shared] Granted Storage Blob Data Contributor on '$storageAccount' to the deploying principal."
+    Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+}
+else {
+    Write-SharedTrace "Role assignment for '$storageAccount' skipped (already exists)."
+}
 
 foreach ($bak in @($TailspinToysBak, $TailspinToysFeedbackBak)) {
     Start-SharedStep "Upload backup $bak"
@@ -382,15 +394,16 @@ foreach ($bak in @($TailspinToysBak, $TailspinToysFeedbackBak)) {
     Write-Host "[shared] Uploading $bak."
     # --no-progress: the CLI's own upload progress bar goes to stderr regardless of $ProgressPreference,
     # which the runner's child-job receiver mis-relays as a "RemoteException" (false-positive failure).
-    az storage blob upload --account-name $storageAccount --account-key $storageKey `
+    az storage blob upload --account-name $storageAccount --auth-mode login `
         --container-name $containerName --name $bak --file $localBak --overwrite true --only-show-errors --no-progress 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to upload $bak." }
 }
 
 $expiry = (Get-Date).ToUniversalTime().AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
 Start-SharedStep "Generate backup container SAS"
+# User-delegation SAS (Entra-signed): the only SAS type that still works with shared-key auth disabled.
 $sasToken = az storage container generate-sas --account-name $storageAccount --name $containerName `
-    --account-key $storageKey --permissions rl --https-only --expiry $expiry -o tsv
+    --auth-mode login --as-user --permissions rl --https-only --expiry $expiry -o tsv
 if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"
@@ -443,10 +456,20 @@ if ($jobExists -ne 1) {
 # 7. Fabric VNet data gateway + ConnectionCreator for every attendee
 # ─────────────────────────────────────────────
 Update-MhhTokenQuiet
-Start-SharedStep "Resolve Fabric capacity"
-$capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
+# ARM reporting the capacity deployment as Succeeded doesn't mean the Fabric control plane has finished
+# attaching it yet; creating the gateway against a not-yet-Active capacity leaves it permanently unable
+# to refresh, even though both later report healthy. Wait for the Fabric-side state explicitly.
+Start-SharedStep "Wait for Fabric capacity to become Active"
+$capacity = $null
+for ($elapsed = 0; $elapsed -lt 300; $elapsed += 15) {
+    $capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
+    if ($capacity -and $capacity.state -eq 'Active') { break }
+    Write-Host "[shared] Waiting for Fabric capacity '$capacityName' to become Active (state=$($capacity.state); ${elapsed}s elapsed)..."
+    Start-Sleep -Seconds 15
+}
 if (-not $capacity) { throw "Fabric capacity '$capacityName' not visible via the Fabric API (check tenant setting 'Service principals can use Fabric APIs')." }
-Write-SharedTrace "Fabric capacity id: $($capacity.id)"
+if ($capacity.state -ne 'Active') { throw "Fabric capacity '$capacityName' did not reach Active state within 5 minutes (last state: $($capacity.state))." }
+Write-SharedTrace "Fabric capacity id: $($capacity.id); state confirmed Active."
 
 $gatewayName = "fabric-gateway-shared"
 Start-SharedStep "Resolve Fabric VNet gateway"

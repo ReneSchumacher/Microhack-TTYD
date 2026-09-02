@@ -149,12 +149,43 @@ $userStorage = [string]$rgResult.Outputs['storageAccountName']
 $userContainer = [string]$rgResult.Outputs['containerName']
 Write-LabTrace "Attendee ARM outputs: storageAccount=$userStorage; container=$userContainer."
 
+# The attendee storage account has shared-key auth disabled; resolve the deploying principal once so both
+# the CSV upload and the attendee's own read access (e.g. Fabric OneLake shortcuts) can use Entra RBAC.
+Start-LabStep "Resolve deploying principal"
+$azContext = Get-AzContext
+$deployingAccount = $azContext.Account.Id
+$deployingPrincipalId = $null
+$deployingPrincipalType = 'User'
+if ($deployingAccount -as [guid]) {
+    $deployingPrincipalType = 'ServicePrincipal'
+    $deployingPrincipalId = (Get-AzADServicePrincipal -ApplicationId $deployingAccount -ErrorAction SilentlyContinue).Id
+    if (-not $deployingPrincipalId) { $deployingPrincipalId = az ad sp show --id $deployingAccount --query id -o tsv 2>$null }
+}
+else {
+    $deployingPrincipalId = (Get-AzADUser -SignedIn -ErrorAction SilentlyContinue).Id
+}
+if (-not $deployingPrincipalId) { throw "Could not resolve the deploying principal object id." }
+
+Start-LabStep "Grant blob data access on attendee storage"
+$userStorageId = az storage account show --resource-group $ResourceGroupName --name $userStorage --query id -o tsv
+az role assignment create --assignee-object-id $deployingPrincipalId --assignee-principal-type $deployingPrincipalType `
+    --role 'Storage Blob Data Contributor' --scope $userStorageId 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[lab] Granted Storage Blob Data Contributor on '$userStorage' to the deploying principal."
+    Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+}
+else {
+    Write-LabTrace "Role assignment for '$userStorage' skipped (already exists)."
+}
+# The attendee reads their own CSV via their organizational account (e.g. Fabric OneLake shortcuts).
+az role assignment create --assignee-object-id $attendeeId --assignee-principal-type User `
+    --role 'Storage Blob Data Reader' --scope $userStorageId 2>$null | Out-Null
+
 # Upload the employee CSV into the attendee container.
 Start-LabStep "Upload attendee employee CSV"
 $csvPath = Join-Path $PSScriptRoot 'csvdata/employees_user_data.csv'
 if (-not (Test-Path $csvPath)) { throw "Employee CSV not found: $csvPath" }
-$userStorageKey = az storage account keys list --resource-group $ResourceGroupName --account-name $userStorage --query "[0].value" -o tsv
-az storage blob upload --account-name $userStorage --account-key $userStorageKey `
+az storage blob upload --account-name $userStorage --auth-mode login `
     --container-name $userContainer --name (Split-Path $csvPath -Leaf) --file $csvPath `
     --overwrite true --only-show-errors --no-progress | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to upload employee CSV." }
@@ -235,9 +266,16 @@ if ($productExists -ne 1) {
 Start-LabStep "Resolve Fabric capacity"
 Update-MhhTokenQuiet
 $capacityName = az resource list -g $SharedResourceGroup --resource-type 'Microsoft.Fabric/capacities' --query "[0].name" -o tsv
-$capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
+$capacity = $null
+for ($elapsed = 0; $elapsed -lt 120; $elapsed += 15) {
+    $capacity = (Invoke-FabricApi -Method GET -Path 'capacities').value | Where-Object { $_.displayName -eq $capacityName } | Select-Object -First 1
+    if ($capacity -and $capacity.state -eq 'Active') { break }
+    Write-LabTrace "Waiting for Fabric capacity '$capacityName' to become Active (state=$($capacity.state))..."
+    Start-Sleep -Seconds 15
+}
 if (-not $capacity) { throw "Fabric capacity '$capacityName' not visible via the Fabric API." }
-Write-LabTrace "Fabric capacity resolved: name=$capacityName; id=$($capacity.id)."
+if ($capacity.state -ne 'Active') { throw "Fabric capacity '$capacityName' did not reach Active state (last state: $($capacity.state))." }
+Write-LabTrace "Fabric capacity resolved: name=$capacityName; id=$($capacity.id); state=$($capacity.state)."
 
 Start-LabStep "Create or resolve attendee Fabric workspace"
 $workspaceName = "Workspace_$short"
