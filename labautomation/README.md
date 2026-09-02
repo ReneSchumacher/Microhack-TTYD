@@ -24,9 +24,11 @@ integration for the Talk-To-Your-Data MicroHack.
 
 ## Prerequisites
 
-- **Fabric APIs for service principals** must be enabled in the tenant admin portal
-  (the platform runs as a service principal). Without it, gateway/workspace creation
-  fails.
+- The platform runs as a service principal. A Fabric administrator must enable both
+  **Service principals can call Fabric public APIs** and **Service principals can create
+  workspaces, connections, and deployment pipelines** in the Fabric Admin portal, with
+  the platform service principal included in an allowed security group. The second
+  setting is separate and disabled by default for new tenants.
 - The automation accesses SQL with a stable administrator password scoped to `rg-shared`;
   both hooks derive the same value without printing or distributing it. The shared hook
   also configures the first lab user as the SQL MI Entra admin and grants Directory Readers

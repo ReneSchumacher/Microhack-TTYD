@@ -244,9 +244,18 @@ $workspaceName = "Workspace_$short"
 $workspace = (Invoke-FabricApi -Method GET -Path 'workspaces').value | Where-Object { $_.displayName -eq $workspaceName } | Select-Object -First 1
 if (-not $workspace) {
     Write-Host "[lab] Creating Fabric workspace '$workspaceName'."
-    $workspace = Invoke-FabricApi -Method POST -Path 'workspaces' -Body @{
-        displayName = $workspaceName
-        capacityId  = $capacity.id
+    try {
+        $workspace = Invoke-FabricApi -Method POST -Path 'workspaces' -Body @{
+            displayName = $workspaceName
+            capacityId  = $capacity.id
+        }
+    }
+    catch {
+        if ($_.Exception.Message -match '(?i)Unauthorized|not authenticated') {
+            $caller = (Get-AzContext).Account.Id
+            throw "Fabric denied workspace creation for '$caller'. In the Fabric Admin portal, enable the Developer setting 'Service principals can create workspaces, connections, and deployment pipelines' for a security group containing this service principal."
+        }
+        throw
     }
 }
 Write-LabTrace "Fabric workspace resolved: name=$workspaceName; id=$($workspace.id)."
