@@ -197,10 +197,24 @@ Start-LabStep "Prepare attendee database restores"
 Update-MhhTokenQuiet
 $storageAccount = az storage account list -g $SharedResourceGroup --query "[0].name" -o tsv
 $containerName = 'build'
-$storageKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query "[0].value" -o tsv
+
+# The shared backup storage account has shared-key auth disabled; grant this run's principal
+# Entra-based blob access too (it may not be the same principal that ran the shared hook).
+$backupStorageId = az storage account show --resource-group $SharedResourceGroup --name $storageAccount --query id -o tsv
+az role assignment create --assignee-object-id $deployingPrincipalId --assignee-principal-type $deployingPrincipalType `
+    --role 'Storage Blob Data Contributor' --scope $backupStorageId 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[lab] Granted Storage Blob Data Contributor on '$storageAccount' to the deploying principal."
+    Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+}
+else {
+    Write-LabTrace "Role assignment for '$storageAccount' skipped (already exists)."
+}
+
 $expiry = (Get-Date).ToUniversalTime().AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
+# User-delegation SAS (Entra-signed): the only SAS type that still works with shared-key auth disabled.
 $sasToken = az storage container generate-sas --account-name $storageAccount --name $containerName `
-    --account-key $storageKey --permissions rl --https-only --expiry $expiry -o tsv
+    --auth-mode login --as-user --permissions rl --https-only --expiry $expiry -o tsv
 if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"
