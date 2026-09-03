@@ -116,7 +116,7 @@ function Invoke-MiSql {
 
 function Invoke-FabricApi {
     param(
-        [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'DELETE')][string]$Method,
+        [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'PATCH', 'DELETE')][string]$Method,
         [Parameter(Mandatory = $true)][string]$Path,
         [object]$Body
     )
@@ -453,7 +453,7 @@ if ($jobExists -ne 1) {
 }
 
 # ─────────────────────────────────────────────
-# 7. Fabric VNet data gateway + ConnectionCreator for every attendee
+# 7. Fabric VNet data gateway + Admin role for every attendee
 # ─────────────────────────────────────────────
 Update-MhhTokenQuiet
 # ARM reporting the capacity deployment as Succeeded doesn't mean the Fabric control plane has finished
@@ -492,13 +492,33 @@ if (-not $gateway) {
     }
 }
 Write-SharedTrace "Fabric gateway id: $($gateway.id)"
+# Attendees get Admin (not just ConnectionCreator) so they can restart the gateway themselves when it
+# goes to sleep or fails during the hack.
+$gatewayAssignments = @()
+try { $gatewayAssignments = @((Invoke-FabricApi -Method GET -Path "gateways/$($gateway.id)/roleAssignments").value) }
+catch { Write-Warning "[shared] Could not list existing gateway role assignments: $($_.Exception.Message)" }
+
 foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
     try {
-        Start-SharedStep "Grant Fabric gateway ConnectionCreator to $uid"
-        Invoke-FabricApi -Method POST -Path "gateways/$($gateway.id)/roleAssignments" -Body @{
-            principal = @{ id = $uid; type = 'User' }
-            role      = 'ConnectionCreator'
-        } | Out-Null
+        $existing = $gatewayAssignments | Where-Object { $_.principal.id -eq $uid } | Select-Object -First 1
+        if ($existing -and $existing.role -eq 'Admin') {
+            Write-SharedTrace "Gateway Admin already assigned to $uid."
+            continue
+        }
+        Start-SharedStep "Grant Fabric gateway Admin to $uid"
+        if ($existing) {
+            # Re-run over a lab that was provisioned with ConnectionCreator: upgrade in place, since a
+            # second POST for the same principal is rejected.
+            Invoke-FabricApi -Method PATCH -Path "gateways/$($gateway.id)/roleAssignments/$($existing.id)" -Body @{
+                role = 'Admin'
+            } | Out-Null
+        }
+        else {
+            Invoke-FabricApi -Method POST -Path "gateways/$($gateway.id)/roleAssignments" -Body @{
+                principal = @{ id = $uid; type = 'User' }
+                role      = 'Admin'
+            } | Out-Null
+        }
     }
     catch {
         Write-Warning "[shared] Gateway role assignment for $uid skipped: $($_.Exception.Message)"
