@@ -369,6 +369,7 @@ $fabricSubnet = $out.fabricSubnetName.Value
 $storageAccount = $out.backupStorageAccountName.Value
 $containerName = $out.backupContainerName.Value
 $userDataStorage = $out.userDataStorageAccountName.Value
+$userDataStorageDfsEndpoint = $out.userDataStorageDfsEndpoint.Value
 $webshopHost = $out.webshopDefaultHostname.Value
 
 # Public endpoint FQDN: insert 'public.' after the instance short name; port 3342.
@@ -609,9 +610,10 @@ foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
 # ─────────────────────────────────────────────
 # 8. Shared credentials for every attendee's dashboard
 # ─────────────────────────────────────────────
-@{ HackboxCredential = @{ name = 'SQL MI Public Endpoint'; value = $server; note = 'SSMS: connect with the SQL admin login below' } }
-@{ HackboxCredential = @{ name = 'SQL Admin Login'; value = $SqlAdminLogin; note = 'Shared SQL Managed Instance admin' } }
-@{ HackboxCredential = @{ name = 'SQL Admin Password'; value = $sqlPassword; note = 'Shared SQL Managed Instance admin password' } }
+@{ HackboxCredential = @{ name = 'SQL MI Endpoint'; value = $publicFqdn; note = 'SSMS: connect with the SQL login below (port 3342)' } }
+@{ HackboxCredential = @{ name = 'SQL Login'; value = $DemoSqlLogin; note = 'Shared SQL Managed Instance demo login' } }
+@{ HackboxCredential = @{ name = 'SQL Password'; value = $DemoSqlPassword; note = 'Shared SQL Managed Instance demo login password' } }
+@{ HackboxCredential = @{ name = 'User Data Storage DFS Endpoint'; value = $userDataStorageDfsEndpoint; note = 'ADLS Gen2 endpoint for the shared employee CSV storage account' } }
 @{ HackboxCredential = @{ name = 'Webshop URL'; value = "https://$webshopHost"; note = 'Shared Tailspin Toys webshop' } }
 @{ HackboxCredential = @{ name = 'Fabric Capacity'; value = $capacityName; note = 'Shared Fabric F32 capacity' } }
 @{ HackboxCredential = @{ name = 'Shared Resource Group'; value = $SharedResourceGroup; note = 'Shared by all labs in your subscription' } }

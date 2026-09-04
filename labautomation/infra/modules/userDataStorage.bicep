@@ -60,4 +60,5 @@ resource containers 'Microsoft.Storage/storageAccounts/blobServices/containers@2
 ]
 
 output storageAccountName string = storageAccount.name
+output storageAccountDfsEndpoint string = storageAccount.properties.primaryEndpoints.dfs
 output containerNames array = containerNames

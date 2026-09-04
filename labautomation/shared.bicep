@@ -119,6 +119,7 @@ output fabricCapacityName string = fabricCapacity.outputs.capacityName
 output backupStorageAccountName string = storageBackups.outputs.storageAccountName
 output backupContainerName string = storageBackups.outputs.containerName
 output userDataStorageAccountName string = userDataStorage.outputs.storageAccountName
+output userDataStorageDfsEndpoint string = userDataStorage.outputs.storageAccountDfsEndpoint
 output userDataContainerNames array = userDataStorage.outputs.containerNames
 output webshopName string = appService.outputs.webAppName
 output webshopDefaultHostname string = appService.outputs.defaultHostname
