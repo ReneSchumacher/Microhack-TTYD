@@ -45,6 +45,8 @@ $script:SharedCurrentStep = 'initialization'
 # ─────────────────────────────────────────────
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
+$DemoSqlLogin = 'demouser'
+$DemoSqlPassword = 'Demo@pass1234567'
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
 # Fabric requires a licensed user in the tenant before it recognises it; the deploying principal cannot
 # grant that license (no Graph write permission), so it comes from the 'M365-E5-Users' group request in
@@ -112,6 +114,40 @@ function Invoke-MiSql {
     $source = if ($InputFile) { "file '$InputFile'" } else { 'inline query' }
     Write-SharedTrace "SQL $Database on $Server using $source. Timeout=$QueryTimeout."
     Invoke-Sqlcmd @splat
+}
+
+function Ensure-DemoSqlLogin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Server
+    )
+    $login = $DemoSqlLogin.Replace(']', ']]')
+    $password = $DemoSqlPassword.Replace("'", "''")
+    Invoke-MiSql -Server $Server -Database 'master' -QueryTimeout 60 -Query @"
+IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'$DemoSqlLogin')
+    CREATE LOGIN [$login] WITH PASSWORD = N'$password', CHECK_POLICY = OFF;
+ELSE
+    ALTER LOGIN [$login] WITH PASSWORD = N'$password', CHECK_POLICY = OFF;
+"@ | Out-Null
+}
+
+function Grant-DemoSqlLoginDatabaseAccess {
+    param(
+        [Parameter(Mandatory = $true)][string]$Server,
+        [Parameter(Mandatory = $true)][string]$Database
+    )
+    $login = $DemoSqlLogin.Replace(']', ']]')
+    Invoke-MiSql -Server $Server -Database $Database -QueryTimeout 60 -Query @"
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$DemoSqlLogin')
+    CREATE USER [$login] FROM LOGIN [$login];
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.database_role_members drm
+    INNER JOIN sys.database_principals roles ON roles.principal_id = drm.role_principal_id
+    INNER JOIN sys.database_principals members ON members.principal_id = drm.member_principal_id
+    WHERE roles.name = N'db_owner' AND members.name = N'$DemoSqlLogin'
+)
+    ALTER ROLE [db_owner] ADD MEMBER [$login];
+"@ | Out-Null
 }
 
 function Invoke-FabricApi {
@@ -311,6 +347,10 @@ $publicFqdn = $miFqdn -replace '^([^.]+)\.', '$1.public.'
 $server = "$publicFqdn,3342"
 Write-SharedTrace "Shared outputs: miName=$miName; capacityName=$capacityName; vnetName=$vnetName; fabricSubnet=$fabricSubnet; storageAccount=$storageAccount; containerName=$containerName; webshopHost=$webshopHost."
 
+Start-SharedStep "Ensure shared demo SQL login"
+Ensure-DemoSqlLogin -Server $server
+Write-Host "[shared] Ensured SQL login '$DemoSqlLogin' for Fabric mirroring."
+
 # ─────────────────────────────────────────────
 # 4. Entra: Directory Readers for the MI identity (needed for external-provider logins)
 # ─────────────────────────────────────────────
@@ -426,6 +466,11 @@ foreach ($db in $DemoDatabases.Keys) {
     $url = "https://$storageAccount.blob.core.windows.net/$containerName/$($DemoDatabases[$db])"
     Write-Host "[shared] Restoring demo database '$db'."
     Invoke-MiSql -Server $server -Database 'master' -Query "RESTORE DATABASE [$db] FROM URL = N'$url';" | Out-Null
+}
+
+foreach ($db in $DemoDatabases.Keys) {
+    Start-SharedStep "Grant demo SQL login access to $db"
+    Grant-DemoSqlLoginDatabaseAccess -Server $server -Database $db
 }
 
 # ─────────────────────────────────────────────

@@ -37,6 +37,8 @@ $script:LabCurrentStep = 'initialization'
 
 $SharedResourceGroup = 'rg-shared'
 $SqlAdminLogin = 'sqlmiadmin'
+$DemoSqlLogin = 'demouser'
+$DemoSqlPassword = 'Demo@pass1234567'
 $FabricApi = 'https://api.fabric.microsoft.com/v1'
 $TailspinToysBak = 'tailspintoys_before_launch.bak'
 $TailspinToysFeedbackBak = 'tailspintoysfeedback_before_launch.bak'
@@ -83,6 +85,40 @@ function Invoke-MiSql {
     Write-LabTrace "SQL $Database on $Server using inline query. Timeout=$QueryTimeout."
     Invoke-Sqlcmd -ServerInstance $Server -Database $Database -Credential $cred `
         -Query $Query -ConnectionTimeout 30 -QueryTimeout $QueryTimeout -ErrorAction Stop
+}
+
+function Ensure-DemoSqlLogin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Server
+    )
+    $login = $DemoSqlLogin.Replace(']', ']]')
+    $password = $DemoSqlPassword.Replace("'", "''")
+    Invoke-MiSql -Server $Server -Database 'master' -QueryTimeout 60 -Query @"
+IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'$DemoSqlLogin')
+    CREATE LOGIN [$login] WITH PASSWORD = N'$password', CHECK_POLICY = OFF;
+ELSE
+    ALTER LOGIN [$login] WITH PASSWORD = N'$password', CHECK_POLICY = OFF;
+"@ | Out-Null
+}
+
+function Grant-DemoSqlLoginDatabaseAccess {
+    param(
+        [Parameter(Mandatory = $true)][string]$Server,
+        [Parameter(Mandatory = $true)][string]$Database
+    )
+    $login = $DemoSqlLogin.Replace(']', ']]')
+    Invoke-MiSql -Server $Server -Database $Database -QueryTimeout 60 -Query @"
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$DemoSqlLogin')
+    CREATE USER [$login] FROM LOGIN [$login];
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.database_role_members drm
+    INNER JOIN sys.database_principals roles ON roles.principal_id = drm.role_principal_id
+    INNER JOIN sys.database_principals members ON members.principal_id = drm.member_principal_id
+    WHERE roles.name = N'db_owner' AND members.name = N'$DemoSqlLogin'
+)
+    ALTER ROLE [db_owner] ADD MEMBER [$login];
+"@ | Out-Null
 }
 
 function Invoke-FabricApi {
@@ -143,6 +179,10 @@ $miFqdn = $mi[0].fullyQualifiedDomainName
 $publicFqdn = $miFqdn -replace '^([^.]+)\.', '$1.public.'
 $server = "$publicFqdn,3342"
 Write-LabTrace "Shared SQL MI resolved: name=$($mi[0].name); server=$server."
+
+Start-LabStep "Ensure shared demo SQL login"
+Ensure-DemoSqlLogin -Server $server
+Write-Host "[lab] Ensured SQL login '$DemoSqlLogin' for Fabric mirroring."
 
 # ─────────────────────────────────────────────
 # 1. Per-attendee ARM resources (CSV storage) into the attendee's RG
@@ -273,6 +313,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$upn')
     CREATE USER [$upn] FROM LOGIN [$upn];
 ALTER ROLE [db_owner] ADD MEMBER [$upn];
 "@ | Out-Null
+
+    Start-LabStep "Grant demo SQL login access to $db"
+    Grant-DemoSqlLoginDatabaseAccess -Server $server -Database $db
 }
 
 # Ensure the Fabric Space Ranger product exists in the sales database (needed by the

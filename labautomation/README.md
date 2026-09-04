@@ -37,6 +37,8 @@ integration for the Talk-To-Your-Data MicroHack.
   both hooks derive the same value without printing or distributing it. The shared hook
   also configures the first lab user as the SQL MI Entra admin and grants Directory Readers
   to the MI identity for attendee login creation.
+- Fabric mirroring uses the shared SQL login `demouser` / `Demo@pass1234567`; both hooks
+  ensure the login exists and has `db_owner` access to restored lab databases.
 - The scripts read `databasebackup/*.bak` and `csvdata/*.csv` and reuse
   `infra/modules`, all local to this folder, so **mount this `labautomation` folder** for local testing.
 
