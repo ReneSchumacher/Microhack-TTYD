@@ -7,8 +7,8 @@
 //     the first lab user; ARM cannot resolve the principal in the lab tenant)
 //   - demo database restores, stored proc, product, Agent job
 //   - Fabric VNet gateway + gateway role assignments
-// Per-attendee resources (user databases, Fabric workspaces) are created by
-// deploy-lab.ps1.
+// Per-attendee work (user databases, Fabric workspaces, SQL access, CSV upload)
+// is performed by deploy-lab.ps1. No ARM resources are deployed per attendee.
 
 @description('Azure region for the shared resources.')
 param location string

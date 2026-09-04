@@ -10,7 +10,7 @@ integration for the Talk-To-Your-Data MicroHack.
 | `lab-defaults.json` | Platform sizing: `resourcegroup`, 42 labs/subscription. |
 | `shared-deploy-lab.ps1` | Runs once per subscription → `rg-shared`. Shared VNet, SQL MI, Fabric F32 capacity + gateway, backup storage, shared CSV storage, shared webshop, demo databases, stored proc, product, Agent job. |
 | `deploy-lab.ps1` | Runs once per attendee. Two databases in the shared MI, the attendee's login + Fabric workspace, and CSV upload into the attendee's shared storage container. |
-| `shared.bicep` / `main.bicep` | ARM templates for the shared stack and the per-attendee resources (reuse `infra/modules`). |
+| `shared.bicep` | ARM template for the shared stack (reuses `infra/modules`). There is no per-attendee ARM deployment. |
 | `sql/` | `StoredProcedure.sql`, `Jobs.sql`, `InsertProduct.sql` (discover per-attendee DBs by name pattern). |
 
 ## Split model
@@ -43,7 +43,8 @@ integration for the Talk-To-Your-Data MicroHack.
 - Fabric mirroring uses the shared SQL login `demouser` / `Demo@pass1234567`; both hooks
   ensure the login exists and has `db_owner` access to restored lab databases.
 - The scripts read `databasebackup/*.bak` and `csvdata/*.csv` and reuse
-  `infra/modules`, all local to this folder, so **mount this `labautomation` folder** for local testing.
+  `shared.bicep` and `infra/modules`, all local to this folder, so **mount this
+  `labautomation` folder** for local testing.
 
 ## Local testing
 
