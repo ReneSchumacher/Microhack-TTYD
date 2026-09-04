@@ -116,12 +116,24 @@ Start-LabStep "Resolve attendee"
 $attendeeId = $AllowedEntraUserIds[0]
 Write-LabTrace "Resolving lab user '$attendeeId'."
 $user = Get-MhhLabUser -UserId $attendeeId
-$short = ($user.ShortName -replace '[^a-zA-Z0-9]', '').ToLower()
+$rawShortName = [string]$user.ShortName
+$short = ($rawShortName -replace '[^a-zA-Z0-9]', '').ToLower()
 if ([string]::IsNullOrWhiteSpace($short)) { $short = 'u' + (Get-MhhStableHash -Value $attendeeId -Length 12) }
 $upn = $user.UserPrincipalName
 
-$sqlDb = "TailspinToys_$short"
-$feedbackDb = "TailspinToysFeedback_$short"
+$labUserPostfix = $null
+if ($rawShortName -match '(?i)(?:labuser|user)[-_]?0*(\d+)$') {
+    $labUserPostfix = 'User{0:D4}' -f [int]$Matches[1]
+}
+elseif ($upn -match '(?i)(?:labuser|user)[-_]?0*(\d+)') {
+    $labUserPostfix = 'User{0:D4}' -f [int]$Matches[1]
+}
+if ([string]::IsNullOrWhiteSpace($labUserPostfix)) {
+    throw "Could not derive the TTYD user postfix from ShortName '$rawShortName' or UPN '$upn'. Expected a value like labuser-0001 or user0001."
+}
+
+$sqlDb = "TailspinToys_$labUserPostfix"
+$feedbackDb = "TailspinToysFeedback_$labUserPostfix"
 Write-LabTrace "Resolved attendee '$upn'; salesDatabase=$sqlDb; feedbackDatabase=$feedbackDb."
 
 Start-LabStep "Resolve shared SQL Managed Instance"
