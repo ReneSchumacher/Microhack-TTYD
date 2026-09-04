@@ -485,11 +485,12 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"
 Start-SharedStep "Create SQL restore credential"
+# ALTER, not DROP+CREATE: DROP fails while any restore on this instance is still using the credential.
 Invoke-MiSql -Server $server -Database 'master' -QueryTimeout 60 -Query @"
 IF EXISTS (SELECT 1 FROM sys.credentials WHERE name = N'$credentialName')
-    DROP CREDENTIAL [$credentialName];
-CREATE CREDENTIAL [$credentialName]
-WITH IDENTITY = 'Shared Access Signature', SECRET = '$sasToken';
+    ALTER CREDENTIAL [$credentialName] WITH IDENTITY = 'Shared Access Signature', SECRET = '$sasToken';
+ELSE
+    CREATE CREDENTIAL [$credentialName] WITH IDENTITY = 'Shared Access Signature', SECRET = '$sasToken';
 "@ | Out-Null
 
 foreach ($db in $DemoDatabases.Keys) {

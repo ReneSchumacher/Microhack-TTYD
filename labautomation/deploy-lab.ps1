@@ -147,6 +147,36 @@ IF NOT EXISTS (
 "@ | Out-Null
 }
 
+function Set-LabRestoreCredential {
+    # The credential is an instance-level object on the SHARED SQL MI, so every attendee's
+    # deployment targets the same name. DROP fails with "cannot drop ... because it is used
+    # by an active restore" while another attendee is restoring, so refresh via ALTER instead.
+    param(
+        [Parameter(Mandatory = $true)][string]$Server,
+        [Parameter(Mandatory = $true)][string]$CredentialName,
+        [Parameter(Mandatory = $true)][string]$SasToken
+    )
+    $name = $CredentialName.Replace(']', ']]')
+    $secret = $SasToken.Replace("'", "''")
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Invoke-MiSql -Server $Server -Database 'master' -QueryTimeout 60 -Query @"
+IF EXISTS (SELECT 1 FROM sys.credentials WHERE name = N'$CredentialName')
+    ALTER CREDENTIAL [$name] WITH IDENTITY = 'Shared Access Signature', SECRET = '$secret';
+ELSE
+    CREATE CREDENTIAL [$name] WITH IDENTITY = 'Shared Access Signature', SECRET = '$secret';
+"@ | Out-Null
+            return
+        }
+        catch {
+            # Another attendee's run may have created the credential between the check and the CREATE.
+            if ($attempt -eq 5) { throw }
+            Write-LabTrace "Restore credential update attempt $attempt failed ($($_.Exception.Message)). Retrying."
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
+}
+
 function Invoke-FabricApi {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('GET', 'POST', 'DELETE')][string]$Method,
@@ -299,12 +329,7 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"
 Start-LabStep "Create SQL restore credential"
-Invoke-MiSql -Server $server -Database 'master' -QueryTimeout 60 -Query @"
-IF EXISTS (SELECT 1 FROM sys.credentials WHERE name = N'$credentialName')
-    DROP CREDENTIAL [$credentialName];
-CREATE CREDENTIAL [$credentialName]
-WITH IDENTITY = 'Shared Access Signature', SECRET = '$sasToken';
-"@ | Out-Null
+Set-LabRestoreCredential -Server $server -CredentialName $credentialName -SasToken $sasToken
 
 $restores = @(
     @{ Db = $sqlDb; Bak = $TailspinToysBak },
