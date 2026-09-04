@@ -97,6 +97,22 @@ function Invoke-MiSql {
         -Query $Query -ConnectionTimeout 30 -QueryTimeout $QueryTimeout -ErrorAction Stop
 }
 
+function New-LabRoleAssignmentIfMissing {
+    param(
+        [Parameter(Mandatory = $true)][string]$ObjectId,
+        [Parameter(Mandatory = $true)][string]$PrincipalType,
+        [Parameter(Mandatory = $true)][string]$Role,
+        [Parameter(Mandatory = $true)][string]$Scope
+    )
+    $existing = az role assignment list --assignee $ObjectId --role $Role --scope $Scope --query '[0].id' -o tsv 2>$null
+    if (-not [string]::IsNullOrWhiteSpace($existing)) { return $false }
+
+    az role assignment create --assignee-object-id $ObjectId --assignee-principal-type $PrincipalType `
+        --role $Role --scope $Scope 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to grant '$Role' on '$Scope' to '$ObjectId'." }
+    return $true
+}
+
 function Ensure-DemoSqlLogin {
     param(
         [Parameter(Mandatory = $true)][string]$Server
@@ -169,10 +185,16 @@ $upn = $user.UserPrincipalName
 
 $labUserNumber = Get-LabUserNumber -ShortName $rawShortName -UserPrincipalName $upn
 if (-not $labUserNumber) {
-    throw "Could not derive the TTYD user postfix from ShortName '$rawShortName' or UPN '$upn'. Expected a value like labuser-0001 or user0001."
+    $localTestUserIndex = if ($env:TTYD_LOCAL_TEST_USER_INDEX) { [int]$env:TTYD_LOCAL_TEST_USER_INDEX } else { 1 }
+    if ($localTestUserIndex -lt 1) { throw "TTYD_LOCAL_TEST_USER_INDEX must be greater than or equal to 1." }
+    $labUserSuffix = 'x{0:D3}' -f $localTestUserIndex
+    Write-Warning "[lab] Could not derive a labuser number from ShortName '$rawShortName' or UPN '$upn'; using local-test fallback User$labUserSuffix."
 }
-$labUserPostfix = 'User{0:D4}' -f [int]$labUserNumber
-$userContainer = 'container{0:D4}' -f [int]$labUserNumber
+else {
+    $labUserSuffix = '{0:D4}' -f [int]$labUserNumber
+}
+$labUserPostfix = "User$labUserSuffix"
+$userContainer = "container$labUserSuffix"
 
 $sqlDb = "TailspinToys_$labUserPostfix"
 $feedbackDb = "TailspinToysFeedback_$labUserPostfix"
@@ -215,19 +237,21 @@ Write-LabTrace "Shared user-data storage resolved: storageAccount=$userStorage; 
 
 Start-LabStep "Grant blob data access on shared user-data storage"
 $userStorageId = az storage account show --resource-group $SharedResourceGroup --name $userStorage --query id -o tsv
-az role assignment create --assignee-object-id $deployingPrincipalId --assignee-principal-type $deployingPrincipalType `
-    --role 'Storage Blob Data Contributor' --scope $userStorageId 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
+$createdUserStorageRole = New-LabRoleAssignmentIfMissing -ObjectId $deployingPrincipalId -PrincipalType $deployingPrincipalType `
+    -Role 'Storage Blob Data Contributor' -Scope $userStorageId
+if ($createdUserStorageRole) {
     Write-Host "[lab] Granted Storage Blob Data Contributor on '$userStorage' to the deploying principal."
+    Write-Host "[lab] Waiting 30 seconds for shared user-data storage RBAC propagation."
     Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+    Write-LabTrace "Shared user-data storage RBAC propagation wait complete."
 }
 else {
     Write-LabTrace "Role assignment for '$userStorage' skipped (already exists)."
 }
 # The attendee reads their own CSV via their organizational account (e.g. Fabric OneLake shortcuts).
 $userContainerId = "$userStorageId/blobServices/default/containers/$userContainer"
-az role assignment create --assignee-object-id $attendeeId --assignee-principal-type User `
-    --role 'Storage Blob Data Reader' --scope $userContainerId 2>$null | Out-Null
+New-LabRoleAssignmentIfMissing -ObjectId $attendeeId -PrincipalType User `
+    -Role 'Storage Blob Data Reader' -Scope $userContainerId | Out-Null
 
 # Upload the employee CSV into the attendee container.
 Start-LabStep "Upload attendee employee CSV"
@@ -250,20 +274,24 @@ $containerName = 'build'
 # The shared backup storage account has shared-key auth disabled; grant this run's principal
 # Entra-based blob access too (it may not be the same principal that ran the shared hook).
 $backupStorageId = az storage account show --resource-group $SharedResourceGroup --name $storageAccount --query id -o tsv
-az role assignment create --assignee-object-id $deployingPrincipalId --assignee-principal-type $deployingPrincipalType `
-    --role 'Storage Blob Data Contributor' --scope $backupStorageId 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
+$createdBackupStorageRole = New-LabRoleAssignmentIfMissing -ObjectId $deployingPrincipalId -PrincipalType $deployingPrincipalType `
+    -Role 'Storage Blob Data Contributor' -Scope $backupStorageId
+if ($createdBackupStorageRole) {
     Write-Host "[lab] Granted Storage Blob Data Contributor on '$storageAccount' to the deploying principal."
+    Write-Host "[lab] Waiting 30 seconds for backup storage RBAC propagation."
     Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+    Write-LabTrace "Backup storage RBAC propagation wait complete."
 }
 else {
     Write-LabTrace "Role assignment for '$storageAccount' skipped (already exists)."
 }
 
 $expiry = (Get-Date).ToUniversalTime().AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
-# User-delegation SAS (Entra-signed): the only SAS type that still works with shared-key auth disabled.
+# SQL MI RESTORE FROM URL requires an account-key-backed service SAS.
+$storageAccountKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query '[0].value' -o tsv
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($storageAccountKey)) { throw "Failed to read a storage account key for '$storageAccount'." }
 $sasToken = az storage container generate-sas --account-name $storageAccount --name $containerName `
-    --auth-mode login --as-user --permissions rl --https-only --expiry $expiry -o tsv
+    --account-key $storageAccountKey --permissions rl --https-only --expiry $expiry -o tsv
 if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"

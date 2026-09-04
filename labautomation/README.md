@@ -18,10 +18,12 @@ integration for the Talk-To-Your-Data MicroHack.
 - **Shared, once per subscription:** one SQL Managed Instance and one Fabric F32
   capacity. The webshop and the `usp_PurchaseSpaceRanger` proc / Agent job are shared
   and fan out to every attendee database that exists. Employee CSV files live in one
-  shared storage account with four-digit per-user containers such as `container0001`.
+  shared storage account with per-user containers such as `container0001` for lab users
+  or `containerx001` for local tests with regular tenant accounts.
 - **Per attendee:** `TailspinToys_User####` + `TailspinToysFeedback_User####` in the
   shared MI, one Fabric workspace on the shared capacity, and one shared-storage
-  container named `container####`.
+  container named `container####`. Local tests with regular tenant accounts use
+  `TailspinToys_Userx001` / `TailspinToysFeedback_Userx001` and `containerx001`.
 
 ## Prerequisites
 
@@ -76,6 +78,29 @@ Then run the two hooks in the real order. Pass more than one object id to
     -ResourceGroupName   "rg-lab-local-test" `
     -PreferredLocation   "swedencentral" `
     -AllowedEntraUserIds (Get-AzADUser -SignedIn).Id
+```
+
+For local testing with regular tenant accounts instead of framework-created
+`labuser-####` accounts, set `TTYD_LOCAL_TEST_USER_INDEX` before each attendee
+run. This keeps the hook parameters framework-compatible while producing stable
+local names such as `TailspinToys_Userx001` and `containerx001`:
+
+```powershell
+$env:TTYD_LOCAL_TEST_USER_INDEX = '1'
+./deploy-lab.ps1 `
+  -DeploymentType      resourcegroup `
+  -SubscriptionId      (Get-AzContext).Subscription.Id `
+  -ResourceGroupName   "rg-lab-local-test-x001" `
+  -PreferredLocation   "swedencentral" `
+  -AllowedEntraUserIds '<regular-user-object-id>'
+
+$env:TTYD_LOCAL_TEST_USER_INDEX = '2'
+./deploy-lab.ps1 `
+  -DeploymentType      resourcegroup `
+  -SubscriptionId      (Get-AzContext).Subscription.Id `
+  -ResourceGroupName   "rg-lab-local-test-x002" `
+  -PreferredLocation   "swedencentral" `
+  -AllowedEntraUserIds '<regular-user-object-id>'
 ```
 
 > Provisioning a SQL Managed Instance takes hours; `shared-deploy-lab.ps1` submits it

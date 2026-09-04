@@ -254,19 +254,24 @@ foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
             UserPrincipalName = $memberUpn
             ShortName         = $mhhUser.ShortName
             LabUserNumber     = Get-LabUserNumber -ShortName $mhhUser.ShortName -UserPrincipalName $memberUpn
+            LabUserSuffix     = $null
         })
 }
 if ($labUsers.Count -eq 0) { throw "Could not resolve any lab user from AllowedEntraUserIds." }
 Write-SharedTrace "Resolved $($labUsers.Count) lab users: $((@($labUsers | ForEach-Object { $_.UserPrincipalName }) -join ', '))"
 
-$labUsersWithoutNumber = @($labUsers | Where-Object { -not $_.LabUserNumber })
-if ($labUsersWithoutNumber.Count -gt 0) {
-    $unresolved = @($labUsersWithoutNumber | ForEach-Object { "$($_.UserPrincipalName) ($($_.ShortName))" }) -join ', '
-    throw "Could not derive four-digit lab user numbers for: $unresolved. Expected values like labuser-0001 or user0001."
+foreach ($labUser in @($labUsers | Where-Object { $_.LabUserNumber })) {
+    $labUser.LabUserSuffix = '{0:D4}' -f [int]$labUser.LabUserNumber
+}
+$nextFallbackUserIndex = 1
+foreach ($labUser in @($labUsers | Where-Object { -not $_.LabUserNumber })) {
+    $labUser.LabUserSuffix = 'x{0:D3}' -f $nextFallbackUserIndex
+    Write-Warning "[shared] Could not derive a labuser number for '$($labUser.UserPrincipalName)' ($($labUser.ShortName)); using local-test fallback User$($labUser.LabUserSuffix)."
+    $nextFallbackUserIndex++
 }
 $userDataContainerNames = @($labUsers |
-        Sort-Object LabUserNumber |
-        ForEach-Object { 'container{0:D4}' -f [int]$_.LabUserNumber } |
+        Sort-Object LabUserSuffix |
+        ForEach-Object { "container$($_.LabUserSuffix)" } |
         Select-Object -Unique)
 Write-SharedTrace "Preparing shared user-data storage containers: $($userDataContainerNames -join ', ')."
 
@@ -396,7 +401,10 @@ Write-Host "[shared] SQL MI identity Directory Readers: $($drResult.status -join
 # administrator sub-resource directly. Directory Readers must be granted first.
 # Entra directory-role assignments are eventually consistent; a short wait risks
 # ServicePrincipalLookupInAadFailedIdentityForbidden when the PUT below looks up the AAD admin.
+Start-SharedStep "Wait for Directory Readers propagation"
+Write-Host "[shared] Waiting 5 minutes for the SQL MI Directory Readers assignment to propagate before setting the Entra admin."
 Start-Sleep -Seconds 300
+Write-SharedTrace "Directory Readers propagation wait complete."
 Update-MhhTokenQuiet
 
 Start-SharedStep "Configure SQL MI Entra admin"
@@ -445,7 +453,9 @@ az role assignment create --assignee-object-id $spObjectId --assignee-principal-
     --role 'Storage Blob Data Contributor' --scope $backupStorageId 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[shared] Granted Storage Blob Data Contributor on '$storageAccount' to the deploying principal."
+    Write-Host "[shared] Waiting 30 seconds for backup storage RBAC propagation."
     Start-Sleep -Seconds 30   # RBAC assignments are eventually consistent.
+    Write-SharedTrace "Backup storage RBAC propagation wait complete."
 }
 else {
     Write-SharedTrace "Role assignment for '$storageAccount' skipped (already exists)."
@@ -465,9 +475,11 @@ foreach ($bak in @($TailspinToysBak, $TailspinToysFeedbackBak)) {
 
 $expiry = (Get-Date).ToUniversalTime().AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
 Start-SharedStep "Generate backup container SAS"
-# User-delegation SAS (Entra-signed): the only SAS type that still works with shared-key auth disabled.
+# SQL MI RESTORE FROM URL requires an account-key-backed service SAS.
+$storageAccountKey = az storage account keys list --resource-group $SharedResourceGroup --account-name $storageAccount --query '[0].value' -o tsv
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($storageAccountKey)) { throw "Failed to read a storage account key for '$storageAccount'." }
 $sasToken = az storage container generate-sas --account-name $storageAccount --name $containerName `
-    --auth-mode login --as-user --permissions rl --https-only --expiry $expiry -o tsv
+    --account-key $storageAccountKey --permissions rl --https-only --expiry $expiry -o tsv
 if ($LASTEXITCODE -ne 0) { throw "Failed to generate container SAS." }
 
 $credentialName = "https://$storageAccount.blob.core.windows.net/$containerName"

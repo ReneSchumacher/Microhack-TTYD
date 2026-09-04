@@ -9,7 +9,7 @@ param location string
 @description('Lab/environment name (used for tagging and the generated account name).')
 param envName string
 
-@description('Explicit four-digit per-user container names, e.g. container0001.')
+@description('Explicit per-user container names, e.g. container0001 for lab users or containerx001 for local test users.')
 @minLength(1)
 param containerNames array
 

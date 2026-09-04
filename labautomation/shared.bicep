@@ -32,7 +32,7 @@ param fabricAdminMembers array
 @description('Base database the shared webshop connects to.')
 param webshopSqlDatabase string = 'TailspinToys_Demo_Final'
 
-@description('Exact four-digit per-user CSV container names to create.')
+@description('Exact per-user CSV container names to create.')
 param userDataContainerNames array
 
 @description('When true, the SQL MI subnet NSG and route table already exist and are referenced instead of redeployed (avoids ConflictWithNetworkIntentPolicy on shared hook re-runs).')
