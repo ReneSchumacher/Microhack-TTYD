@@ -231,7 +231,11 @@ else {
 if (-not $deployingPrincipalId) { throw "Could not resolve the deploying principal object id." }
 
 Start-LabStep "Resolve shared user-data storage"
-$userStorage = az storage account list -g $SharedResourceGroup --query "[?starts_with(name, 'stuserdata')].name | [0]" -o tsv
+$userStorage = az storage account list -g $SharedResourceGroup --query "[?starts_with(name, 'employeedata')].name | [0]" -o tsv
+if ([string]::IsNullOrWhiteSpace($userStorage)) {
+    Write-Warning "[lab] No 'employeedata' storage account found; falling back to legacy 'stuserdata' account for this existing test deployment."
+    $userStorage = az storage account list -g $SharedResourceGroup --query "[?starts_with(name, 'stuserdata')].name | [0]" -o tsv
+}
 if ([string]::IsNullOrWhiteSpace($userStorage)) { throw "No shared user-data storage account found in '$SharedResourceGroup'. Did the shared hook run?" }
 Write-LabTrace "Shared user-data storage resolved: storageAccount=$userStorage; container=$userContainer."
 
@@ -248,10 +252,9 @@ if ($createdUserStorageRole) {
 else {
     Write-LabTrace "Role assignment for '$userStorage' skipped (already exists)."
 }
-# The attendee reads their own CSV via their organizational account (e.g. Fabric OneLake shortcuts).
-$userContainerId = "$userStorageId/blobServices/default/containers/$userContainer"
+# Fabric's ADLS Gen2 connection flow needs to enumerate the storage account before the attendee selects their container.
 New-LabRoleAssignmentIfMissing -ObjectId $attendeeId -PrincipalType User `
-    -Role 'Storage Blob Data Reader' -Scope $userContainerId | Out-Null
+    -Role 'Storage Blob Data Reader' -Scope $userStorageId | Out-Null
 
 # Upload the employee CSV into the attendee container.
 Start-LabStep "Upload attendee employee CSV"

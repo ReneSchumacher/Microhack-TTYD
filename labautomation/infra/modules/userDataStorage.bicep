@@ -13,14 +13,15 @@ param envName string
 @minLength(1)
 param containerNames array
 
-@description('Optional explicit storage account name. Defaults to stuserdata<normalizedEnv>.')
+@description('Optional explicit storage account name. Defaults to employeedata<unique>.')
 param storageAccountName string = ''
 
 @description('Tags to apply to all resources.')
 param tags object = {}
 
 var normalizedEnv = toLower(replace(envName, '-', ''))
-var generatedName = substring('stuserdata${normalizedEnv}', 0, min(length('stuserdata${normalizedEnv}'), 24))
+var generatedNameBase = 'employeedata${uniqueString(subscription().subscriptionId, resourceGroup().id, normalizedEnv)}'
+var generatedName = substring(generatedNameBase, 0, min(length(generatedNameBase), 24))
 var effectiveName = empty(storageAccountName) ? generatedName : storageAccountName
 
 var mergedTags = union(tags, {

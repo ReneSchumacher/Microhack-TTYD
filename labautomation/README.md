@@ -18,8 +18,8 @@ integration for the Talk-To-Your-Data MicroHack.
 - **Shared, once per subscription:** one SQL Managed Instance and one Fabric F32
   capacity. The webshop and the `usp_PurchaseSpaceRanger` proc / Agent job are shared
   and fan out to every attendee database that exists. Employee CSV files live in one
-  shared storage account with per-user containers such as `container0001` for lab users
-  or `containerx001` for local tests with regular tenant accounts.
+  shared `employeedata...` storage account with per-user containers such as `container0001`
+  for lab users or `containerx001` for local tests with regular tenant accounts.
 - **Per attendee:** `TailspinToys_User####` + `TailspinToysFeedback_User####` in the
   shared MI, one Fabric workspace on the shared capacity, and one shared-storage
   container named `container####`. Local tests with regular tenant accounts use
