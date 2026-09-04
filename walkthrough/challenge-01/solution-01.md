@@ -302,7 +302,7 @@ In this task, you will integrate operational data mirrored from Azure SQL Manage
 <tr><td colspan="2" align="center"><img src="../../images/image034.png" style="width: 100%; display: block;"></td></tr>
 <tr><td>Check shortcut creation</td><td>If the shortcut does not appear immediately, click the <b>three dots</b> next to <b>Files</b> and select <b>Refresh</b>.</td></tr>
 <tr><td colspan="2" align="center"><img src="../../images/image035.jpg" style="width: 100%; display: block;"></td></tr>
-<tr><td>Click <b>container###</b> and verify that the CSV file is visible in this container.</td><td>Replace ### with your user number prefix/postfix.</td></tr>
+<tr><td>Click <b>container####</b> and verify that the CSV file is visible in this container.</td><td>Replace #### with your four-digit user number prefix/postfix.</td></tr>
 <tr><td colspan="2" align="center"><img src="../../images/image150.png" style="width: 100%; display: block;"></td></tr>
 <tr><td>Expand the Files folder. Click the Shortcut folder with your user name. Locate the CSV file and click the three dots (⋯) (e.g. employees_user_data.csv).</td><td></td></tr>
 <tr><td colspan="2" align="center"><img src="../../images/image036.png" style="width: 100%; display: block;"></td></tr>

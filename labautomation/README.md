@@ -8,8 +8,8 @@ integration for the Talk-To-Your-Data MicroHack.
 | File | Purpose |
 | --- | --- |
 | `lab-defaults.json` | Platform sizing: `resourcegroup`, 42 labs/subscription. |
-| `shared-deploy-lab.ps1` | Runs once per subscription → `rg-shared`. Shared VNet, SQL MI, Fabric F32 capacity + gateway, backup storage, shared webshop, demo databases, stored proc, product, Agent job. |
-| `deploy-lab.ps1` | Runs once per attendee. Two databases in the shared MI, the attendee's login + Fabric workspace, a per-attendee CSV storage account. |
+| `shared-deploy-lab.ps1` | Runs once per subscription → `rg-shared`. Shared VNet, SQL MI, Fabric F32 capacity + gateway, backup storage, shared CSV storage, shared webshop, demo databases, stored proc, product, Agent job. |
+| `deploy-lab.ps1` | Runs once per attendee. Two databases in the shared MI, the attendee's login + Fabric workspace, and CSV upload into the attendee's shared storage container. |
 | `shared.bicep` / `main.bicep` | ARM templates for the shared stack and the per-attendee resources (reuse `infra/modules`). |
 | `sql/` | `StoredProcedure.sql`, `Jobs.sql`, `InsertProduct.sql` (discover per-attendee DBs by name pattern). |
 
@@ -17,10 +17,11 @@ integration for the Talk-To-Your-Data MicroHack.
 
 - **Shared, once per subscription:** one SQL Managed Instance and one Fabric F32
   capacity. The webshop and the `usp_PurchaseSpaceRanger` proc / Agent job are shared
-  and fan out to every attendee database that exists.
+  and fan out to every attendee database that exists. Employee CSV files live in one
+  shared storage account with four-digit per-user containers such as `container0001`.
 - **Per attendee:** `TailspinToys_User####` + `TailspinToysFeedback_User####` in the
-  shared MI, one Fabric workspace on the shared capacity, one CSV storage account in
-  the attendee resource group.
+  shared MI, one Fabric workspace on the shared capacity, and one shared-storage
+  container named `container####`.
 
 ## Prerequisites
 

@@ -9,12 +9,9 @@ param location string
 @description('Lab/environment name (used for tagging and the generated account name).')
 param envName string
 
-@description('Number of per-user containers to create.')
-@minValue(1)
-param userCount int
-
-@description('Prefix for generated container names (e.g. container001).')
-param containerNamePrefix string = 'container'
+@description('Explicit four-digit per-user container names, e.g. container0001.')
+@minLength(1)
+param containerNames array
 
 @description('Optional explicit storage account name. Defaults to stuserdata<normalizedEnv>.')
 param storageAccountName string = ''
@@ -29,8 +26,6 @@ var effectiveName = empty(storageAccountName) ? generatedName : storageAccountNa
 var mergedTags = union(tags, {
   environment: envName
 })
-
-var containerNames = [for i in range(0, userCount): '${containerNamePrefix}${padLeft(string(i + 1), 3, '0')}']
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: effectiveName

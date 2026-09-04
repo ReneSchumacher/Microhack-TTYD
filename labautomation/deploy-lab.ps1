@@ -73,6 +73,16 @@ function Start-LabStep {
     Write-LabTrace "STEP: $Name"
 }
 
+function Get-LabUserNumber {
+    param(
+        [string]$ShortName,
+        [string]$UserPrincipalName
+    )
+    if ($ShortName -match '(?i)(?:labuser|user)[-_]?0*(\d+)$') { return [int]$Matches[1] }
+    if ($UserPrincipalName -match '(?i)(?:labuser|user)[-_]?0*(\d+)') { return [int]$Matches[1] }
+    return $null
+}
+
 function Invoke-MiSql {
     param(
         [Parameter(Mandatory = $true)][string]$Server,
@@ -157,20 +167,16 @@ $short = ($rawShortName -replace '[^a-zA-Z0-9]', '').ToLower()
 if ([string]::IsNullOrWhiteSpace($short)) { $short = 'u' + (Get-MhhStableHash -Value $attendeeId -Length 12) }
 $upn = $user.UserPrincipalName
 
-$labUserPostfix = $null
-if ($rawShortName -match '(?i)(?:labuser|user)[-_]?0*(\d+)$') {
-    $labUserPostfix = 'User{0:D4}' -f [int]$Matches[1]
-}
-elseif ($upn -match '(?i)(?:labuser|user)[-_]?0*(\d+)') {
-    $labUserPostfix = 'User{0:D4}' -f [int]$Matches[1]
-}
-if ([string]::IsNullOrWhiteSpace($labUserPostfix)) {
+$labUserNumber = Get-LabUserNumber -ShortName $rawShortName -UserPrincipalName $upn
+if (-not $labUserNumber) {
     throw "Could not derive the TTYD user postfix from ShortName '$rawShortName' or UPN '$upn'. Expected a value like labuser-0001 or user0001."
 }
+$labUserPostfix = 'User{0:D4}' -f [int]$labUserNumber
+$userContainer = 'container{0:D4}' -f [int]$labUserNumber
 
 $sqlDb = "TailspinToys_$labUserPostfix"
 $feedbackDb = "TailspinToysFeedback_$labUserPostfix"
-Write-LabTrace "Resolved attendee '$upn'; salesDatabase=$sqlDb; feedbackDatabase=$feedbackDb."
+Write-LabTrace "Resolved attendee '$upn'; salesDatabase=$sqlDb; feedbackDatabase=$feedbackDb; userDataContainer=$userContainer."
 
 Start-LabStep "Resolve shared SQL Managed Instance"
 $mi = @(az sql mi list -g $SharedResourceGroup -o json | ConvertFrom-Json)
@@ -185,24 +191,8 @@ Ensure-DemoSqlLogin -Server $server
 Write-Host "[lab] Ensured SQL login '$DemoSqlLogin' for Fabric mirroring."
 
 # ─────────────────────────────────────────────
-# 1. Per-attendee ARM resources (CSV storage) into the attendee's RG
+# 1. Upload the attendee CSV into the shared user-data storage account
 # ─────────────────────────────────────────────
-Start-LabStep "Deploy attendee ARM resources"
-Update-MhhTokenQuiet
-$rgResult = Invoke-MhhDeploymentWithRegionFallback `
-    -PreferredLocations    $PreferredLocation `
-    -ResourceGroupName     $ResourceGroupName `
-    -RgOwnerEntraObjectIds $AllowedEntraUserIds `
-    -TemplateFile          (Join-Path $PSScriptRoot 'main.bicep') `
-    -TemplateParameterObject @{ attendeeObjectId = $attendeeId } `
-    -DeploymentNamePrefix  'lab'
-
-$userStorage = [string]$rgResult.Outputs['storageAccountName']
-$userContainer = [string]$rgResult.Outputs['containerName']
-Write-LabTrace "Attendee ARM outputs: storageAccount=$userStorage; container=$userContainer."
-
-# The attendee storage account has shared-key auth disabled; resolve the deploying principal once so both
-# the CSV upload and the attendee's own read access (e.g. Fabric OneLake shortcuts) can use Entra RBAC.
 Start-LabStep "Resolve deploying principal"
 $azContext = Get-AzContext
 $deployingAccount = $azContext.Account.Id
@@ -218,8 +208,13 @@ else {
 }
 if (-not $deployingPrincipalId) { throw "Could not resolve the deploying principal object id." }
 
-Start-LabStep "Grant blob data access on attendee storage"
-$userStorageId = az storage account show --resource-group $ResourceGroupName --name $userStorage --query id -o tsv
+Start-LabStep "Resolve shared user-data storage"
+$userStorage = az storage account list -g $SharedResourceGroup --query "[?starts_with(name, 'stuserdata')].name | [0]" -o tsv
+if ([string]::IsNullOrWhiteSpace($userStorage)) { throw "No shared user-data storage account found in '$SharedResourceGroup'. Did the shared hook run?" }
+Write-LabTrace "Shared user-data storage resolved: storageAccount=$userStorage; container=$userContainer."
+
+Start-LabStep "Grant blob data access on shared user-data storage"
+$userStorageId = az storage account show --resource-group $SharedResourceGroup --name $userStorage --query id -o tsv
 az role assignment create --assignee-object-id $deployingPrincipalId --assignee-principal-type $deployingPrincipalType `
     --role 'Storage Blob Data Contributor' --scope $userStorageId 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) {
@@ -230,8 +225,9 @@ else {
     Write-LabTrace "Role assignment for '$userStorage' skipped (already exists)."
 }
 # The attendee reads their own CSV via their organizational account (e.g. Fabric OneLake shortcuts).
+$userContainerId = "$userStorageId/blobServices/default/containers/$userContainer"
 az role assignment create --assignee-object-id $attendeeId --assignee-principal-type User `
-    --role 'Storage Blob Data Reader' --scope $userStorageId 2>$null | Out-Null
+    --role 'Storage Blob Data Reader' --scope $userContainerId 2>$null | Out-Null
 
 # Upload the employee CSV into the attendee container.
 Start-LabStep "Upload attendee employee CSV"
@@ -247,7 +243,8 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to upload employee CSV." }
 # ─────────────────────────────────────────────
 Start-LabStep "Prepare attendee database restores"
 Update-MhhTokenQuiet
-$storageAccount = az storage account list -g $SharedResourceGroup --query "[0].name" -o tsv
+$storageAccount = az storage account list -g $SharedResourceGroup --query "[?starts_with(name, 'stsqlhack')].name | [0]" -o tsv
+if ([string]::IsNullOrWhiteSpace($storageAccount)) { throw "No shared backup storage account found in '$SharedResourceGroup'. Did the shared hook run?" }
 $containerName = 'build'
 
 # The shared backup storage account has shared-key auth disabled; grant this run's principal

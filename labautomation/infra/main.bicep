@@ -95,8 +95,7 @@ module userDataStorage 'modules/userDataStorage.bicep' = {
   params: {
     location: location
     envName: envName
-    userCount: userCount
-    containerNamePrefix: 'container'
+    containerNames: [for i in range(0, userCount): 'container${padLeft(string(i + 1), 4, '0')}']
     tags: commonTags
   }
 }

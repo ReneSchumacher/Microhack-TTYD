@@ -92,6 +92,16 @@ function Start-SharedStep {
     Write-SharedTrace "STEP: $Name"
 }
 
+function Get-LabUserNumber {
+    param(
+        [string]$ShortName,
+        [string]$UserPrincipalName
+    )
+    if ($ShortName -match '(?i)(?:labuser|user)[-_]?0*(\d+)$') { return [int]$Matches[1] }
+    if ($UserPrincipalName -match '(?i)(?:labuser|user)[-_]?0*(\d+)') { return [int]$Matches[1] }
+    return $null
+}
+
 function Invoke-MiSql {
     param(
         [Parameter(Mandatory = $true)][string]$Server,
@@ -243,10 +253,22 @@ foreach ($uid in ($AllowedEntraUserIds | Where-Object { $_ })) {
             Id                = $uid
             UserPrincipalName = $memberUpn
             ShortName         = $mhhUser.ShortName
+            LabUserNumber     = Get-LabUserNumber -ShortName $mhhUser.ShortName -UserPrincipalName $memberUpn
         })
 }
 if ($labUsers.Count -eq 0) { throw "Could not resolve any lab user from AllowedEntraUserIds." }
 Write-SharedTrace "Resolved $($labUsers.Count) lab users: $((@($labUsers | ForEach-Object { $_.UserPrincipalName }) -join ', '))"
+
+$labUsersWithoutNumber = @($labUsers | Where-Object { -not $_.LabUserNumber })
+if ($labUsersWithoutNumber.Count -gt 0) {
+    $unresolved = @($labUsersWithoutNumber | ForEach-Object { "$($_.UserPrincipalName) ($($_.ShortName))" }) -join ', '
+    throw "Could not derive four-digit lab user numbers for: $unresolved. Expected values like labuser-0001 or user0001."
+}
+$userDataContainerNames = @($labUsers |
+        Sort-Object LabUserNumber |
+        ForEach-Object { 'container{0:D4}' -f [int]$_.LabUserNumber } |
+        Select-Object -Unique)
+Write-SharedTrace "Preparing shared user-data storage containers: $($userDataContainerNames -join ', ')."
 
 $firstLabUser = $labUsers | Where-Object { $_.ShortName -match '(?i)labuser-[0-9]{4}' } | Sort-Object ShortName | Select-Object -First 1
 if (-not $firstLabUser) { $firstLabUser = $labUsers | Sort-Object ShortName | Select-Object -First 1 }
@@ -308,6 +330,7 @@ New-AzResourceGroupDeployment `
     # Plain string, not SecureString: -AsJob cannot serialize a SecureString across the job boundary. Bicep param stays @secure().
     sqlPassword           = $sqlPassword
     fabricAdminMembers    = $fabricAdminMembers
+    userDataContainerNames = $userDataContainerNames
     sqlMiNetworkingExists = $sqlMiNetworkingExists
 } `
     -AsJob | Out-Null
@@ -340,12 +363,13 @@ $vnetName = $out.vnetName.Value
 $fabricSubnet = $out.fabricSubnetName.Value
 $storageAccount = $out.backupStorageAccountName.Value
 $containerName = $out.backupContainerName.Value
+$userDataStorage = $out.userDataStorageAccountName.Value
 $webshopHost = $out.webshopDefaultHostname.Value
 
 # Public endpoint FQDN: insert 'public.' after the instance short name; port 3342.
 $publicFqdn = $miFqdn -replace '^([^.]+)\.', '$1.public.'
 $server = "$publicFqdn,3342"
-Write-SharedTrace "Shared outputs: miName=$miName; capacityName=$capacityName; vnetName=$vnetName; fabricSubnet=$fabricSubnet; storageAccount=$storageAccount; containerName=$containerName; webshopHost=$webshopHost."
+Write-SharedTrace "Shared outputs: miName=$miName; capacityName=$capacityName; vnetName=$vnetName; fabricSubnet=$fabricSubnet; backupStorage=$storageAccount; backupContainer=$containerName; userDataStorage=$userDataStorage; webshopHost=$webshopHost."
 
 Start-SharedStep "Ensure shared demo SQL login"
 Ensure-DemoSqlLogin -Server $server
